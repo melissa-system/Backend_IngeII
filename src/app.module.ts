@@ -1,16 +1,7 @@
 import { Module } from '@nestjs/common';
-<<<<<<< HEAD
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-
-@Module({
-  imports: [],
-  controllers: [AppController],
-  providers: [AppService],
-})
-export class AppModule {}
-=======
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { AveriasModule } from './modules/averias/averias.module';
 import { InventarioModule } from './inventario/inventario.module';
 
@@ -29,6 +20,7 @@ import { InventarioModule } from './inventario/inventario.module';
     AveriasModule,
     InventarioModule,
   ],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}
->>>>>>> 159a38f (feat: modulo backend de reporte de averias terminado)
