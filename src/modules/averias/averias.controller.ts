@@ -1,11 +1,17 @@
-import { Controller, Get, Post, Body, Param, ParseIntPipe } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Post,
+} from '@nestjs/common';
 import { AveriasService } from './averias.service';
 
 // 1. Le decimos a NestJS que la ruta para este controlador será 'averias'
 // Es decir: http://localhost:3000/averias
 @Controller('averias')
 export class AveriasController {
-  
   // 2. Inyectamos el servicio para poder usar sus funciones
   constructor(private readonly averiasService: AveriasService) {}
 
