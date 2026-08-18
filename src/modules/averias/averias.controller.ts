@@ -1,38 +1,27 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  ParseIntPipe,
-  Post,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
 import { AveriasService } from './averias.service';
+import { CreateAveriaDto } from './dto/create-averia.dto';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { Public } from '../../common/decorators/public.decorator';
+import { Role } from '../../common/enums/roles.enum';
 
-// 1. Le decimos a NestJS que la ruta para este controlador será 'averias'
-// Es decir: http://localhost:3000/averias
 @Controller('averias')
+@UseGuards(RolesGuard)
 export class AveriasController {
-  // 2. Inyectamos el servicio para poder usar sus funciones
   constructor(private readonly averiasService: AveriasService) {}
 
-  // 3. Endpoint para CREAR una avería (Método POST)
-  // Cuando React envíe datos a http://localhost:3000/averias, caerán aquí
+  // Ruta pública: formulario web para reportar averías
+  @Public()
   @Post()
-  async create(@Body() datosAveria: any) {
-    return await this.averiasService.create(datosAveria);
+  create(@Body() createAveriaDto: CreateAveriaDto) {
+    return this.averiasService.create(createAveriaDto);
   }
 
-  // 4. Endpoint para TRAER TODAS las averías (Método GET)
-  // React lo consume llamando a http://localhost:3000/averias
+  // Ruta protegida: consulta de todas las averías (solo Admin / Junta)
   @Get()
-  async findAll() {
-    return await this.averiasService.findAll();
-  }
-
-  // 5. Endpoint para TRAER UNA sola avería por su ID (Método GET con parámetro)
-  // Ejemplo: http://localhost:3000/averias/5
-  @Get(':id')
-  async findOne(@Param('id', ParseIntPipe) id: number) {
-    return await this.averiasService.findOne(id);
+  @Roles(Role.ADMIN)
+  findAll() {
+    return this.averiasService.findAll();
   }
 }
