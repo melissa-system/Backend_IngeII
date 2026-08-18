@@ -4,7 +4,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AveriasModule } from './modules/averias/averias.module';
-import { InventarioModule } from './inventario/inventario.module';
+import { InventarioModule } from './modules/inventario/inventario.module';
+import { AuthModule } from './modules/auth/auth.module';
 
 @Module({
   imports: [
@@ -29,6 +30,8 @@ import { InventarioModule } from './inventario/inventario.module';
         },
       }),
     }),
+   
+    AuthModule,
     AveriasModule,
     InventarioModule,
   ],
