@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { AveriasModule } from './modules/averias/averias.module';
 import { InventarioModule } from './modules/inventario/inventario.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { SolicitudesModule } from './modules/solicitudes/solicitudes.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { AuthModule } from './modules/auth/auth.module';
     AuthModule,
     AveriasModule,
     InventarioModule,
+    SolicitudesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
