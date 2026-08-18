@@ -1,7 +1,10 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
+import { configDotenv } from 'dotenv';
+
+configDotenv({ path: '.env', override: true });
 
 async function bootstrap() {
+  const { AppModule } = await import('./app.module');
   const app = await NestFactory.create(AppModule);
 
   // Habilitar CORS para que el frontend (puerto 5173) se comunique sin bloqueos
