@@ -12,17 +12,18 @@ export class Publicacion {
   @PrimaryGeneratedColumn()
   id: number;
 
-  // 3. Título de la noticia/comunicado/aviso
-  @Column()
+  // 3. Título de la noticia/comunicado/aviso. Limitado para que la tarjeta
+  // del landing y del dashboard no se desacomode.
+  @Column({ length: 120 })
   titulo: string;
 
-  // 4. Cuerpo/resumen de la publicación (TEXT)
-  @Column({ type: 'text' })
+  // 4. Cuerpo/resumen de la publicación. Limitado por la misma razón que el título.
+  @Column({ length: 400 })
   contenido: string;
 
   // 5. Categoría libre (Ej: 'Aviso', 'Comunicado', 'Mantenimiento').
   // No se restringe a un enum fijo para no limitar al personal administrativo.
-  @Column()
+  @Column({ length: 40 })
   categoria: string;
 
   // 6. Controla si se muestra en el landing público. Activa por defecto al crearse.
