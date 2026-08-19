@@ -16,6 +16,9 @@ const LIMITES = {
   categoria: 40,
 };
 
+// Máximo de publicaciones que se muestran en el landing público a la vez
+const MAX_PUBLICADAS_LANDING = 10;
+
 @Injectable()
 export class PublicacionesService {
   constructor(
@@ -67,11 +70,14 @@ export class PublicacionesService {
     return await this.publicacionRepository.save(nuevaPublicacion);
   }
 
-  // Usado por el landing público: solo publicaciones visibles, más recientes primero
+  // Usado por el landing público: solo publicaciones visibles, más recientes
+  // primero. Se limita a MAX_PUBLICADAS_LANDING para no saturar la página
+  // pública aunque en el dashboard existan muchas más.
   async findPublicadas(): Promise<Publicacion[]> {
     return await this.publicacionRepository.find({
       where: { publicado: true },
       order: { fecha_publicacion: 'DESC' },
+      take: MAX_PUBLICADAS_LANDING,
     });
   }
 
