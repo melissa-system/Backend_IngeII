@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { AveriasModule } from './modules/averias/averias.module';
 import { InventarioModule } from './modules/inventario/inventario.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { SolicitudesModule } from './modules/solicitudes/solicitudes.module';
 import { AbonadosModule } from './modules/abonados/abonados.module';
 import { PublicacionesModule } from './modules/publicaciones/publicaciones.module';
 
@@ -36,6 +37,7 @@ import { PublicacionesModule } from './modules/publicaciones/publicaciones.modul
     AuthModule,
     AveriasModule,
     InventarioModule,
+    SolicitudesModule,
     AbonadosModule,
     PublicacionesModule,
   ],
