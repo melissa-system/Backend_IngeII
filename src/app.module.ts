@@ -7,6 +7,7 @@ import { AveriasModule } from './modules/averias/averias.module';
 import { InventarioModule } from './modules/inventario/inventario.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AbonadosModule } from './modules/abonados/abonados.module';
+import { PublicacionesModule } from './modules/publicaciones/publicaciones.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { AbonadosModule } from './modules/abonados/abonados.module';
     AveriasModule,
     InventarioModule,
     AbonadosModule,
+    PublicacionesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
