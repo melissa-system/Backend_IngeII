@@ -6,4 +6,8 @@ export const EnvConfig = () => ({
   DB_USERNAME: process.env.DB_USERNAME,
   DB_PASSWORD: process.env.DB_PASSWORD,
   DB_DATABASE: process.env.DB_DATABASE,
+  JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET,
+  JWT_ACCESS_EXPIRES: process.env.JWT_ACCESS_EXPIRES,
+  JWT_REFRESH_EXPIRES_DAYS: process.env.JWT_REFRESH_EXPIRES_DAYS,
+  FRONTEND_URL: process.env.FRONTEND_URL,
 });

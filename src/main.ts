@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { join } from 'path';
+import * as cookieParser from 'cookie-parser';
 import { configDotenv } from 'dotenv';
 
 configDotenv({ path: '.env', override: true });
@@ -10,8 +11,15 @@ async function bootstrap() {
   const { AppModule } = await import('./app.module');
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  // Habilitar CORS para que el frontend (puerto 5173) se comunique sin bloqueos
-  app.enableCors();
+  // Habilitar CORS solo para el frontend (puerto 5173) y con credenciales,
+  // necesario para que el navegador envíe la cookie httpOnly del Refresh Token.
+  app.enableCors({
+    origin: process.env.FRONTEND_URL ?? 'http://localhost:5173',
+    credentials: true,
+  });
+
+  // Parseo de cookies para leer el Refresh Token en /auth/refresh y /auth/logout.
+  app.use(cookieParser());
 
   // Validación global de DTOs.
   // whitelist: false -> no borra campos sin decorador.
