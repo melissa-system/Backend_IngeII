@@ -8,6 +8,7 @@ import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { User } from '../modules/auth/entities/user.entity';
 import { Role } from '../common/enums/roles.enum';
+import { BCRYPT_COST } from '../modules/auth/auth-password.config';
 
 configDotenv({ path: '.env', override: true });
 
@@ -35,7 +36,7 @@ async function main(): Promise<void> {
 
   try {
     const repo = dataSource.getRepository(User);
-    const hash = await bcrypt.hash(password, 10);
+    const hash = await bcrypt.hash(password, BCRYPT_COST);
     const existente = await repo.findOne({ where: { email } });
 
     if (existente) {

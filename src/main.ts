@@ -16,6 +16,9 @@ async function bootstrap() {
   app.enableCors({
     origin: process.env.FRONTEND_URL ?? 'http://localhost:5173',
     credentials: true,
+    // Sin esto el navegador oculta Retry-After (no es un header CORS simple)
+    // y el frontend no podría mostrar el contador regresivo del bloqueo.
+    exposedHeaders: ['Retry-After'],
   });
 
   // Parseo de cookies para leer el Refresh Token en /auth/refresh y /auth/logout.
