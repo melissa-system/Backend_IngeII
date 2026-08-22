@@ -54,7 +54,9 @@ export class AveriasService {
   async findOne(id: number): Promise<Averia> {
     const averia = await this.averiaRepository.findOneBy({ id });
     if (!averia) {
-      throw new NotFoundException(`La avería con el ID ${id} no fue encontrada`);
+      throw new NotFoundException(
+        `La avería con el ID ${id} no fue encontrada`,
+      );
     }
     return averia;
   }

@@ -1,9 +1,13 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+} from 'typeorm';
 
 // 1. Le decimos al ORM que esto se convertirá en la tabla 'averias' en MySQL
 @Entity('averias')
 export class Averia {
-  
   // 2. Llave primaria auto-incrementable (id INT PK)
   @PrimaryGeneratedColumn()
   id: number;
@@ -42,6 +46,6 @@ export class Averia {
   @CreateDateColumn()
   fecha_reporte: Date;
 
-  // NOTA: El campo fontanero_asignado_id lo agregaremos más adelante 
+  // NOTA: El campo fontanero_asignado_id lo agregaremos más adelante
   // cuando hagamos las relaciones (FK) entre tablas.
 }
