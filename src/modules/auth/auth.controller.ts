@@ -15,9 +15,11 @@ import { Request, Response } from 'express';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { POLITICA_LOGIN_THROTTLE } from './auth-throttle.config';
+import { POLITICA_RESET_THROTTLE } from './auth-throttle.config';
 import { User } from './entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { CambiarPasswordDto } from './dto/cambiar-password.dto';
+import { SolicitarResetPasswordDto } from './dto/solicitar-reset-password.dto';
 import { LocalAuthGuard } from '../../common/guards/local-auth.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
@@ -72,6 +74,20 @@ export class AuthController {
     };
   }
 
+  // POST /auth/reset-password/solicitar
+  // Ruta pública: cualquiera puede solicitarlo con solo un correo. Igual
+  // que login, se limita por IP (ver POLITICA_RESET_THROTTLE) para evitar
+  // spam de correos y enumeración de cuentas por tiempos de respuesta.
+  @UseGuards(ThrottlerGuard)
+  @Throttle(POLITICA_RESET_THROTTLE)
+  @Post('reset-password/solicitar')
+  @HttpCode(HttpStatus.OK)
+  async solicitarResetPassword(
+    @Body() dto: SolicitarResetPasswordDto,
+  ): Promise<{ mensaje: string }> {
+    return this.authService.solicitarResetPassword(dto.email);
+  }
+  
   // POST /auth/refresh
   // Lee el Refresh Token de la cookie httpOnly, lo valida contra la BD
   // (exista, vigente, no revocado, usuario activo) y rota el par: revoca el
