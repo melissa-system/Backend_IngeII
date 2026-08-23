@@ -214,28 +214,28 @@ export class AuthService {
       mensaje:
         'Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.',
     };
- 
+
     const user = await this.userRepository.findOne({ where: { email } });
- 
+
     // No revelar existencia del correo: se sale aquí con el mismo mensaje,
     // sin distinguir "no existe" de "sí existe pero algo falló después".
     if (!user || !user.isActive) {
       return MENSAJE_GENERICO;
     }
- 
+
     // Invalida cualquier token de recuperación previo sin usar: solo el
     // último enlace enviado debe quedar vigente.
     await this.passwordResetTokenRepository.delete({
       usuario_id: user.id,
       used_at: IsNull(),
     });
- 
+
     const tokenPlano = randomBytes(32).toString('hex');
     const minutos = Number(
       this.configService.get<string>('PASSWORD_RESET_EXPIRES_MINUTES') ?? 30,
     );
     const expiresAt = new Date(Date.now() + minutos * 60 * 1000);
- 
+
     await this.passwordResetTokenRepository.save(
       this.passwordResetTokenRepository.create({
         token_hash: AuthService.hashResetToken(tokenPlano),
@@ -243,11 +243,11 @@ export class AuthService {
         expires_at: expiresAt,
       }),
     );
- 
+
     const url = `${this.configService.get<string>(
       'FRONTEND_URL',
     )}/restablecer-password?token=${tokenPlano}`;
- 
+
     try {
       await this.mailService.enviarCorreoResetPassword(user.email, url);
     } catch (error) {
@@ -260,13 +260,60 @@ export class AuthService {
         'No se pudo enviar el correo de recuperación. Intenta más tarde.',
       );
     }
- 
+
     return MENSAJE_GENERICO;
   }
- 
-  // SHA-256 en hexadecimal; el futuro endpoint de confirmación lo usará
-  // para volver a calcular el hash del token recibido y compararlo.
+
+  // SHA-256 en hexadecimal; lo usa confirmarResetPassword para volver a
+  // calcular el hash del token recibido y compararlo.
   static hashResetToken(tokenPlano: string): string {
     return createHash('sha256').update(tokenPlano).digest('hex');
+  }
+
+  // Confirma la recuperación de contraseña: valida el token contra la BD
+  // (existe, no usado, vigente), actualiza la contraseña hasheada y revoca
+  // TODAS las sesiones activas del usuario — igual que cambiarPassword, un
+  // reset de contraseña es ante todo una respuesta a una posible cuenta
+  // comprometida y debe cerrar cualquier sesión que haya podido quedar abierta.
+  //
+  // Mismo patrón que refrescarSesion: la vigencia se evalúa en SQL
+  // (expires_at > NOW()) para evitar el desfase de zona horaria entre JS y
+  // el driver de MySQL. Mensaje genérico: no distingue "no existe", "expiró"
+  // o "ya se usó".
+  async confirmarResetPassword(
+    tokenPlano: string,
+    nuevaPassword: string,
+  ): Promise<{ mensaje: string }> {
+    const fila = await this.passwordResetTokenRepository
+      .createQueryBuilder('prt')
+      .leftJoinAndSelect('prt.usuario', 'u')
+      .where('prt.token_hash = :hash', {
+        hash: AuthService.hashResetToken(tokenPlano),
+      })
+      .andWhere('prt.used_at IS NULL')
+      .andWhere('prt.expires_at > NOW()')
+      .getOne();
+
+    if (!fila || !fila.usuario.isActive) {
+      throw new BadRequestException(
+        'El enlace de recuperación es inválido o ha expirado',
+      );
+    }
+
+    fila.usuario.password = await bcrypt.hash(nuevaPassword, BCRYPT_COST);
+    await this.userRepository.save(fila.usuario);
+
+    // Revocación masiva: mismo patrón que cambiarPassword.
+    await this.refreshTokenRepository.update(
+      { usuario_id: fila.usuario_id, revoked_at: IsNull() },
+      { revoked_at: new Date() },
+    );
+
+    // Invalida el token de recuperación: de un solo uso.
+    await this.passwordResetTokenRepository.update(fila.id, {
+      used_at: new Date(),
+    });
+
+    return { mensaje: 'Contraseña actualizada. Inicia sesión nuevamente.' };
   }
 }

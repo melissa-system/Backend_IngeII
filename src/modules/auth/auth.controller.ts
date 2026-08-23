@@ -20,6 +20,7 @@ import { User } from './entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { CambiarPasswordDto } from './dto/cambiar-password.dto';
 import { SolicitarResetPasswordDto } from './dto/solicitar-reset-password.dto';
+import { ConfirmarResetPasswordDto } from './dto/confirmar-reset-password.dto';
 import { LocalAuthGuard } from '../../common/guards/local-auth.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
@@ -87,7 +88,25 @@ export class AuthController {
   ): Promise<{ mensaje: string }> {
     return this.authService.solicitarResetPassword(dto.email);
   }
-  
+
+  // POST /auth/reset-password/confirmar
+  // Ruta pública: recibe el token del correo + la nueva contraseña, valida
+  // el hash contra la BD (vigente, no usado) y revoca todas las sesiones
+  // activas del usuario al completar el cambio. Mismo límite por IP que
+  // /solicitar para no facilitar fuerza bruta sobre el token.
+  @UseGuards(ThrottlerGuard)
+  @Throttle(POLITICA_RESET_THROTTLE)
+  @Post('reset-password/confirmar')
+  @HttpCode(HttpStatus.OK)
+  async confirmarResetPassword(
+    @Body() dto: ConfirmarResetPasswordDto,
+  ): Promise<{ mensaje: string }> {
+    return this.authService.confirmarResetPassword(
+      dto.token,
+      dto.nuevaPassword,
+    );
+  }
+
   // POST /auth/refresh
   // Lee el Refresh Token de la cookie httpOnly, lo valida contra la BD
   // (exista, vigente, no revocado, usuario activo) y rota el par: revoca el
