@@ -1,5 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
 import { Role } from '../../../common/enums/roles.enum';
+import { RefreshToken } from './refresh-token.entity';
+import { RoleEntity } from './role.entity';
 
 @Entity('usuarios')
 export class User {
@@ -15,16 +17,23 @@ export class User {
   @Column({
     type: 'enum',
     enum: Role,
-    default: Role.ABONADO, // Rol base por defecto
+    default: Role.ABONADO,
   })
   role: Role;
+
+  @ManyToOne(() => RoleEntity, (roleEntity) => roleEntity.users, { nullable: true, eager: true })
+  @JoinColumn({ name: 'role_id' })
+  roleEntity: RoleEntity;
 
   @Column({ default: true })
   isActive: boolean;
 
-  @CreateDateColumn()
+  @OneToMany(() => RefreshToken, (refreshToken) => refreshToken.usuario)
+  refreshTokens: RefreshToken[];
+
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 }
