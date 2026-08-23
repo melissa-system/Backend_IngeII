@@ -7,17 +7,19 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { MailService } from './mail.service';
 import { POLITICA_LOGIN_THROTTLE } from './auth-throttle.config';
 
 // El ThrottlerGuard solo se aplica donde se declare (ruta login); el
 // contador de intentos vive en memoria y se limpia al reiniciar el proceso.
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, RefreshToken]),
+    TypeOrmModule.forFeature([User, RefreshToken, PasswordResetToken]),
     PassportModule,
     ThrottlerModule.forRoot([POLITICA_LOGIN_THROTTLE.default]),
     JwtModule.registerAsync({
@@ -35,7 +37,7 @@ import { POLITICA_LOGIN_THROTTLE } from './auth-throttle.config';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, LocalStrategy, JwtStrategy],
+  providers: [AuthService, LocalStrategy, JwtStrategy, MailService],
   exports: [TypeOrmModule],
 })
 export class AuthModule {}

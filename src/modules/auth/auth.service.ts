@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   Injectable,
+  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -13,6 +15,7 @@ import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { BCRYPT_COST } from './auth-password.config';
+import { MailService } from './mail.service';
 
 @Injectable()
 export class AuthService {
@@ -21,8 +24,11 @@ export class AuthService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
+    @InjectRepository(PasswordResetToken)
+    private readonly passwordResetTokenRepository: Repository<PasswordResetToken>,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly mailService: MailService,
   ) {}
 
   // Devuelve el usuario solo si existe, está activo y la contraseña coincide.
@@ -197,5 +203,70 @@ export class AuthService {
     );
 
     return { mensaje: 'Contraseña actualizada. Inicia sesión nuevamente.' };
+  }
+
+  // Genera y envía un token de recuperación de contraseña para el correo
+  // indicado. Nunca revela si el correo existe: siempre responde el mismo
+  // mensaje genérico, tanto si el usuario existe como si no, para no
+  // permitir enumerar cuentas registradas por la respuesta.
+  async solicitarResetPassword(email: string): Promise<{ mensaje: string }> {
+    const MENSAJE_GENERICO = {
+      mensaje:
+        'Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.',
+    };
+ 
+    const user = await this.userRepository.findOne({ where: { email } });
+ 
+    // No revelar existencia del correo: se sale aquí con el mismo mensaje,
+    // sin distinguir "no existe" de "sí existe pero algo falló después".
+    if (!user || !user.isActive) {
+      return MENSAJE_GENERICO;
+    }
+ 
+    // Invalida cualquier token de recuperación previo sin usar: solo el
+    // último enlace enviado debe quedar vigente.
+    await this.passwordResetTokenRepository.delete({
+      usuario_id: user.id,
+      used_at: IsNull(),
+    });
+ 
+    const tokenPlano = randomBytes(32).toString('hex');
+    const minutos = Number(
+      this.configService.get<string>('PASSWORD_RESET_EXPIRES_MINUTES') ?? 30,
+    );
+    const expiresAt = new Date(Date.now() + minutos * 60 * 1000);
+ 
+    await this.passwordResetTokenRepository.save(
+      this.passwordResetTokenRepository.create({
+        token_hash: AuthService.hashResetToken(tokenPlano),
+        usuario_id: user.id,
+        expires_at: expiresAt,
+      }),
+    );
+ 
+    const url = `${this.configService.get<string>(
+      'FRONTEND_URL',
+    )}/restablecer-password?token=${tokenPlano}`;
+ 
+    try {
+      await this.mailService.enviarCorreoResetPassword(user.email, url);
+    } catch (error) {
+      // Fallo controlado: se registra para diagnóstico, pero no se revela
+      // el detalle al cliente (podría filtrar info de la infraestructura
+      // de correo). El mensaje SÍ puede ser distinto aquí porque el fallo
+      // es nuestro (SMTP caído), no depende de si el correo existe o no.
+      console.error('Error al enviar correo de recuperación:', error);
+      throw new InternalServerErrorException(
+        'No se pudo enviar el correo de recuperación. Intenta más tarde.',
+      );
+    }
+ 
+    return MENSAJE_GENERICO;
+  }
+ 
+  // SHA-256 en hexadecimal; el futuro endpoint de confirmación lo usará
+  // para volver a calcular el hash del token recibido y compararlo.
+  static hashResetToken(tokenPlano: string): string {
+    return createHash('sha256').update(tokenPlano).digest('hex');
   }
 }
