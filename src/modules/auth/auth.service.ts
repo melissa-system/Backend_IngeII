@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
+import { ActivationToken } from './entities/activation-token.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -26,12 +27,17 @@ export class AuthService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(PasswordResetToken)
     private readonly passwordResetTokenRepository: Repository<PasswordResetToken>,
+    @InjectRepository(ActivationToken)
+    private readonly activationTokenRepository: Repository<ActivationToken>,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
   ) {}
 
   // Devuelve el usuario solo si existe, está activo y la contraseña coincide.
+  // Un usuario "pendiente" (isActive: false, cuenta sin verificar) queda
+  // bloqueado por esta misma condición: no puede iniciar sesión hasta
+  // completar la activación por correo.
   async validateUser(email: string, password: string): Promise<User | null> {
     const user = await this.userRepository.findOne({ where: { email } });
 
@@ -275,11 +281,6 @@ export class AuthService {
   // TODAS las sesiones activas del usuario — igual que cambiarPassword, un
   // reset de contraseña es ante todo una respuesta a una posible cuenta
   // comprometida y debe cerrar cualquier sesión que haya podido quedar abierta.
-  //
-  // Mismo patrón que refrescarSesion: la vigencia se evalúa en SQL
-  // (expires_at > NOW()) para evitar el desfase de zona horaria entre JS y
-  // el driver de MySQL. Mensaje genérico: no distingue "no existe", "expiró"
-  // o "ya se usó".
   async confirmarResetPassword(
     tokenPlano: string,
     nuevaPassword: string,
@@ -303,7 +304,6 @@ export class AuthService {
     fila.usuario.password = await bcrypt.hash(nuevaPassword, BCRYPT_COST);
     await this.userRepository.save(fila.usuario);
 
-    // Revocación masiva: mismo patrón que cambiarPassword.
     await this.refreshTokenRepository.update(
       { usuario_id: fila.usuario_id, revoked_at: IsNull() },
       { revoked_at: new Date() },
@@ -315,5 +315,99 @@ export class AuthService {
     });
 
     return { mensaje: 'Contraseña actualizada. Inicia sesión nuevamente.' };
+  }
+
+  // Registra un usuario nuevo en estado "pendiente" (isActive: false) y le
+  // envía un correo de bienvenida con el enlace de activación. A diferencia
+  // del reset de contraseña, un fallo en el envío del correo NO bloquea el
+  // registro: la cuenta ya quedó creada, solo se registra el error para
+  // diagnóstico (el reenvío del correo de bienvenida queda fuera del
+  // alcance de esta task).
+  async registrar(
+    email: string,
+    password: string,
+  ): Promise<{ mensaje: string }> {
+    const existente = await this.userRepository.findOne({ where: { email } });
+    if (existente) {
+      throw new BadRequestException('Ya existe una cuenta con ese correo');
+    }
+
+    const user = this.userRepository.create({
+      email,
+      password: await bcrypt.hash(password, BCRYPT_COST),
+      isActive: false,
+    });
+    await this.userRepository.save(user);
+
+    const tokenPlano = randomBytes(32).toString('hex');
+    const horas = Number(
+      this.configService.get<string>('ACCOUNT_ACTIVATION_EXPIRES_HOURS') ??
+        24,
+    );
+    const expiresAt = new Date(Date.now() + horas * 60 * 60 * 1000);
+
+    await this.activationTokenRepository.save(
+      this.activationTokenRepository.create({
+        token_hash: AuthService.hashActivationToken(tokenPlano),
+        usuario_id: user.id,
+        expires_at: expiresAt,
+      }),
+    );
+
+    const url = `${this.configService.get<string>(
+      'FRONTEND_URL',
+    )}/activar-cuenta?token=${tokenPlano}`;
+
+    try {
+      await this.mailService.enviarCorreoBienvenida(user.email, url);
+    } catch (error) {
+      // Fallo controlado y NO bloqueante: la cuenta ya existe, solo se
+      // registra el error. A diferencia del reset de contraseña, aquí no
+      // tiene sentido revertir el registro por un fallo de SMTP.
+      console.error('Error al enviar correo de bienvenida:', error);
+    }
+
+    return {
+      mensaje:
+        'Cuenta creada. Revisa tu correo para activarla antes de iniciar sesión.',
+    };
+  }
+
+  // SHA-256 en hexadecimal; lo usa verificarEmail para volver a calcular el
+  // hash del token recibido y compararlo.
+  static hashActivationToken(tokenPlano: string): string {
+    return createHash('sha256').update(tokenPlano).digest('hex');
+  }
+
+  // Valida el token de activación y pasa la cuenta de "pendiente" a
+  // "activa". Mismo patrón que refrescarSesion/confirmarResetPassword
+  // (vigencia evaluada en SQL, mensaje genérico). Un token ya usado deja de
+  // cumplir "used_at IS NULL", así que un segundo intento con el mismo
+  // enlace cae en el mismo error genérico sin activar la cuenta dos veces.
+  async verificarEmail(tokenPlano: string): Promise<{ mensaje: string }> {
+    const fila = await this.activationTokenRepository
+      .createQueryBuilder('at')
+      .leftJoinAndSelect('at.usuario', 'u')
+      .where('at.token_hash = :hash', {
+        hash: AuthService.hashActivationToken(tokenPlano),
+      })
+      .andWhere('at.used_at IS NULL')
+      .andWhere('at.expires_at > NOW()')
+      .getOne();
+
+    if (!fila) {
+      throw new BadRequestException(
+        'El enlace de activación es inválido o ha expirado',
+      );
+    }
+
+    await this.userRepository.update(fila.usuario_id, { isActive: true });
+    await this.activationTokenRepository.update(fila.id, {
+      used_at: new Date(),
+    });
+
+    return {
+      mensaje: 'Cuenta activada correctamente. Ya puedes iniciar sesión.',
+    };
   }
 }

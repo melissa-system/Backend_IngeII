@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Query,
   Req,
   Res,
   Body,
@@ -14,13 +15,14 @@ import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
-import { POLITICA_LOGIN_THROTTLE } from './auth-throttle.config';
-import { POLITICA_RESET_THROTTLE } from './auth-throttle.config';
+import {POLITICA_LOGIN_THROTTLE,POLITICA_RESET_THROTTLE,POLITICA_REGISTRO_THROTTLE,} from './auth-throttle.config';
 import { User } from './entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { CambiarPasswordDto } from './dto/cambiar-password.dto';
 import { SolicitarResetPasswordDto } from './dto/solicitar-reset-password.dto';
 import { ConfirmarResetPasswordDto } from './dto/confirmar-reset-password.dto';
+import { RegistroDto } from './dto/registro.dto';
+import { VerificarEmailDto } from './dto/verificar-email.dto';
 import { LocalAuthGuard } from '../../common/guards/local-auth.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
@@ -46,6 +48,30 @@ export class AuthController {
       path: '/auth',
       maxAge: dias * 24 * 60 * 60 * 1000,
     });
+  }
+
+  // POST /auth/registro
+  // Ruta pública. Crea la cuenta en estado "pendiente" (isActive: false) y
+  // dispara el correo de bienvenida con el enlace de activación. Mismo
+  // límite conservador que reset-password para evitar registro masivo
+  // automatizado.
+  @UseGuards(ThrottlerGuard)
+  @Throttle(POLITICA_REGISTRO_THROTTLE)
+  @Post('registro')
+  @HttpCode(HttpStatus.CREATED)
+  async registro(@Body() dto: RegistroDto): Promise<{ mensaje: string }> {
+    return this.authService.registrar(dto.email, dto.password);
+  }
+
+  // GET /auth/verify-email?token=...
+  // Ruta pública. Valida el token de activación recibido en la URL del
+  // correo de bienvenida y pasa la cuenta de "pendiente" a "activa".
+  @Get('verify-email')
+  @HttpCode(HttpStatus.OK)
+  async verifyEmail(
+    @Query() dto: VerificarEmailDto,
+  ): Promise<{ mensaje: string }> {
+    return this.authService.verificarEmail(dto.token);
   }
 
   // POST /auth/login
