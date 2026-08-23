@@ -7,17 +7,19 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { RoleEntity } from './entities/role.entity';
+import { Permission } from './entities/permission.entity';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
+import { RolesService } from './roles.service';
+import { RolesController } from './roles.controller';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { POLITICA_LOGIN_THROTTLE } from './auth-throttle.config';
 
-// El ThrottlerGuard solo se aplica donde se declare (ruta login); el
-// contador de intentos vive en memoria y se limpia al reiniciar el proceso.
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, RefreshToken]),
+    TypeOrmModule.forFeature([User, RefreshToken, RoleEntity, Permission]),
     PassportModule,
     ThrottlerModule.forRoot([POLITICA_LOGIN_THROTTLE.default]),
     JwtModule.registerAsync({
@@ -26,16 +28,14 @@ import { POLITICA_LOGIN_THROTTLE } from './auth-throttle.config';
       useFactory: (configService: ConfigService): JwtModuleOptions => ({
         secret: configService.get<string>('JWT_ACCESS_SECRET'),
         signOptions: {
-          // El valor viene del .env (ej: '15m'); el casteo evita la fricción
-          // de tipos entre string y StringValue de jsonwebtoken.
           expiresIn: (configService.get<string>('JWT_ACCESS_EXPIRES') ??
             '15m') as unknown as JwtSignOptions['expiresIn'],
         },
       }),
     }),
   ],
-  controllers: [AuthController],
-  providers: [AuthService, LocalStrategy, JwtStrategy],
-  exports: [TypeOrmModule],
+  controllers: [AuthController, RolesController],
+  providers: [AuthService, RolesService, LocalStrategy, JwtStrategy],
+  exports: [AuthService, RolesService, TypeOrmModule],
 })
 export class AuthModule {}
