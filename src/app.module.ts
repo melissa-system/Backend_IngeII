@@ -9,6 +9,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { SolicitudesModule } from './modules/solicitudes/solicitudes.module';
 import { AbonadosModule } from './modules/abonados/abonados.module';
 import { PublicacionesModule } from './modules/publicaciones/publicaciones.module';
+import { DocumentosModule } from './modules/documentos/documentos.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { PublicacionesModule } from './modules/publicaciones/publicaciones.modul
     SolicitudesModule,
     AbonadosModule,
     PublicacionesModule,
+    DocumentosModule,
   ],
   controllers: [AppController],
   providers: [AppService],
