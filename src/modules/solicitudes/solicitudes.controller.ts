@@ -15,8 +15,8 @@ import { mkdirSync } from 'fs';
 import { SolicitudesService } from './solicitudes.service';
 import { CreateSolicitudPajaAguaDto } from './dto/create-solicitud-paja-agua.dto';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { Public } from '../../common/decorators/public.decorator';
 import { Role } from '../../common/enums/roles.enum';
 
 // Tamaño máximo permitido por archivo adjunto (5 MB)
@@ -32,12 +32,11 @@ const ALLOWED_MIME_TYPES = [
 ];
 
 @Controller('solicitudes')
-@UseGuards(RolesGuard)
 export class SolicitudesController {
   constructor(private readonly solicitudesService: SolicitudesService) {}
 
-  // Ruta pública: formulario web de solicitud de paja de agua
-  @Public()
+  // Ruta pública: formulario web de solicitud de paja de agua. Sin guards:
+  // JwtAuthGuard no respeta @Public(), así que aquí no se aplica ninguno.
   @Post()
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -103,6 +102,7 @@ export class SolicitudesController {
   }
 
   // Ruta protegida: consulta de todas las solicitudes (solo Admin / Junta)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Get()
   @Roles(Role.ADMIN)
   findAll() {

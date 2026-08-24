@@ -1,10 +1,11 @@
 import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/roles.enum';
 
 @Controller('inventario')
-@UseGuards(RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class InventarioController {
 
   @Get()
