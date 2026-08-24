@@ -7,6 +7,9 @@ import { configDotenv } from 'dotenv';
 import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { User } from '../modules/auth/entities/user.entity';
+import { RoleEntity } from '../modules/auth/entities/role.entity';
+import { Permission } from '../modules/auth/entities/permission.entity';
+import { RefreshToken } from '../modules/auth/entities/refresh-token.entity';
 import { Role } from '../common/enums/roles.enum';
 import { BCRYPT_COST } from '../modules/auth/auth-password.config';
 
@@ -27,7 +30,10 @@ async function main(): Promise<void> {
     username: process.env.DB_USERNAME,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_DATABASE,
-    entities: [User],
+    // TypeORM necesita todas las entidades relacionadas registradas aquí
+    // para poder resolver el mapeo de User -> roleEntity -> permissions,
+    // aunque este script solo lea/escriba directamente sobre User.
+    entities: [User, RoleEntity, Permission, RefreshToken],
     // El esquema lo gestiona la app con synchronize:true; aquí solo leemos/escribimos.
     synchronize: false,
   });
