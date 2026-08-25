@@ -13,9 +13,13 @@ import { RolesService } from './roles.service';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { AssignPermissionsDto } from './dto/assign-permissions.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { Role } from '../../common/enums/roles.enum';
 
 @Controller('roles')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN, (Role as any).SUPER_ADMIN, (Role as any).ADMINISTRADOR)
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
