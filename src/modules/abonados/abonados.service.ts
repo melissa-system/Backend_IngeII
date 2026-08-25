@@ -22,6 +22,32 @@ export class AbonadosService {
     private readonly userRepository: Repository<User>,
   ) {}
 
+  // Uniforma teléfonos de 8 dígitos al formato XXXX-XXXX. Cualquier otro
+  // formato (internacionales, extensiones, etc.) se respeta tal cual.
+  private formatearTelefono(telefono?: string | null): string | null {
+    if (!telefono) return telefono ?? null;
+    const digitos = telefono.replace(/\D/g, '');
+    if (digitos.length === 8) {
+      return `${digitos.slice(0, 4)}-${digitos.slice(4)}`;
+    }
+    return String(telefono).trim();
+  }
+
+  // Uniforma cédulas costarricenses: física (9 dígitos) como X-XXXX-XXXX
+  // y jurídica (10 dígitos) como X-XXX-XXXXXX. Otros documentos (DIMEX,
+  // pasaportes, etc.) se dejan tal cual.
+  private formatearCedula(cedula?: string | null): string | null {
+    if (!cedula) return cedula ?? null;
+    const digitos = cedula.replace(/\D/g, '');
+    if (digitos.length === 9) {
+      return `${digitos.slice(0, 1)}-${digitos.slice(1, 5)}-${digitos.slice(5)}`;
+    }
+    if (digitos.length === 10) {
+      return `${digitos.slice(0, 1)}-${digitos.slice(1, 4)}-${digitos.slice(4)}`;
+    }
+    return String(cedula).trim();
+  }
+
   // Reglas de negocio compartidas entre creación y actualización:
   // campos obligatorios, representante legal para jurídicas y
   // formato básico del correo.
@@ -34,6 +60,11 @@ export class AbonadosService {
     correo?: string | null;
     direccion?: string | null;
   }): void {
+    // Antes de validar se uniforma el formato: si el usuario no escribió
+    // los guiones del teléfono o la cédula, se agregan automáticamente.
+    datos.telefono = this.formatearTelefono(datos.telefono);
+    datos.cedula = this.formatearCedula(datos.cedula);
+
     const camposObligatorios = [
       'nombre_completo',
       'cedula',
@@ -143,7 +174,7 @@ export class AbonadosService {
 
   // Actualización parcial de los datos de contacto del abonado.
   // El tipo de abonado, la cédula, el estado y el número de abonado
-  // NO son editables por esta vía.
+  // NO son editables por esta vía (el estado tiene su propia ruta).
   async update(
     id: number,
     updateAbonadoDto: UpdateAbonadoDto,
@@ -178,6 +209,12 @@ export class AbonadosService {
       cambios[campo] = texto === '' ? null : texto;
     }
 
+    // El teléfono se uniforma aquí (y no solo en la entidad) para que el
+    // historial compare el valor ya formateado contra el anterior.
+    if (cambios['telefono'] != null) {
+      cambios['telefono'] = this.formatearTelefono(cambios['telefono']);
+    }
+
     Object.assign(abonado, cambios);
 
     // Revalida las reglas sobre la entidad ya fusionada, según su tipo real
@@ -187,6 +224,36 @@ export class AbonadosService {
 
     if (usuarioId !== undefined) {
       await this.registrarHistorial(guardado.id, original, cambios, usuarioId);
+    }
+
+    return guardado;
+  }
+
+  // Cambio de estado operativo del abonado (Activo <-> Inactivo) desde
+  // su ruta específica PATCH /abonados/:id/estado. Si el abonado ya
+  // tiene ese estado no se reescribe ni se genera entrada de historial.
+  async cambiarEstado(
+    id: number,
+    nuevoEstado: string,
+    usuarioId?: number,
+  ): Promise<Abonado> {
+    const abonado = await this.findOne(id);
+    const estadoAnterior = abonado.estado;
+
+    if (estadoAnterior === nuevoEstado) {
+      return abonado;
+    }
+
+    abonado.estado = nuevoEstado;
+    const guardado = await this.abonadoRepository.save(abonado);
+
+    if (usuarioId !== undefined) {
+      await this.registrarHistorial(
+        guardado.id,
+        { estado: estadoAnterior },
+        { estado: nuevoEstado },
+        usuarioId,
+      );
     }
 
     return guardado;

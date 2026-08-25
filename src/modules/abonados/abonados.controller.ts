@@ -13,6 +13,7 @@ import {
 import { AbonadosService } from './abonados.service';
 import { CreateAbonadoDto } from './dto/create-abonado.dto';
 import { UpdateAbonadoDto } from './dto/update-abonado.dto';
+import { CambiarEstadoAbonadoDto } from './dto/cambiar-estado.dto';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -58,5 +59,17 @@ export class AbonadosController {
     @Request() req: { user?: RequestUser },
   ) {
     return this.abonadosService.update(id, updateAbonadoDto, req.user?.id);
+  }
+
+  // Ruta específica para el cambio de estado operativo (Activo <-> Inactivo).
+  // El cambio queda registrado en el historial con el usuario que lo hizo.
+  @Patch(':id/estado')
+  @Roles(Role.ADMIN)
+  cambiarEstado(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CambiarEstadoAbonadoDto,
+    @Request() req: { user?: RequestUser },
+  ) {
+    return this.abonadosService.cambiarEstado(id, dto.estado, req.user?.id);
   }
 }
