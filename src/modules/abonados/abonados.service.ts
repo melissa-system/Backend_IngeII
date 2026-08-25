@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Like, Repository } from 'typeorm';
 import { Abonado } from './entities/abonado.entity';
 import { HistorialAbonado } from './entities/historial-abonado.entity';
 import { CreateAbonadoDto } from './dto/create-abonado.dto';
@@ -112,8 +112,23 @@ export class AbonadosService {
     return await this.abonadoRepository.save(nuevoAbonado);
   }
 
-  async findAll(): Promise<Abonado[]> {
-    return await this.abonadoRepository.find();
+  // Lista todos los abonados o filtra en SQL cuando llega ?buscar=<texto>.
+  async findAll(buscar?: string): Promise<Abonado[]> {
+    const texto = buscar?.trim();
+    if (!texto) {
+      return await this.abonadoRepository.find();
+    }
+
+    const patron = `%${texto}%`;
+    return await this.abonadoRepository.find({
+      where: [
+        { nombre_completo: Like(patron) },
+        { cedula: Like(patron) },
+        { numero_abonado: Like(patron) },
+        { telefono: Like(patron) },
+        { direccion: Like(patron) },
+      ],
+    });
   }
 
   async findOne(id: number): Promise<Abonado> {

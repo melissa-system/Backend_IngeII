@@ -6,6 +6,7 @@ import {
   Body,
   Param,
   ParseIntPipe,
+  Query,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -29,10 +30,12 @@ export class AbonadosController {
     return this.abonadosService.create(createAbonadoDto);
   }
 
+  // Acepta ?buscar=<texto> para filtrar en el servidor por nombre/razón
+  // social, cédula, número de abonado, teléfono o dirección.
   @Get()
   @Roles(Role.ADMIN)
-  findAll() {
-    return this.abonadosService.findAll();
+  findAll(@Query('buscar') buscar?: string) {
+    return this.abonadosService.findAll(buscar);
   }
 
   @Get(':id')
