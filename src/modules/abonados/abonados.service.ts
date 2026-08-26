@@ -108,13 +108,34 @@ export class AbonadosService {
     // 2-4. Validar campos obligatorios, representante legal (jurídicas) y correo
     this.validarDatosAbonado(createAbonadoDto);
 
-    // 5. Evitar abonados duplicados por número de cédula
-    const abonadoExistente = await this.abonadoRepository.findOneBy({
+    // 5. Evitar abonados duplicados por número de cédula, correo o teléfono.
+    // (createAbonadoDto.telefono ya llega formateado XXXX-XXXX gracias a
+    // validarDatosAbonado, así que la comparación es consistente con lo
+    // que queda guardado en la BD).
+    const cedulaExistente = await this.abonadoRepository.findOneBy({
       cedula: createAbonadoDto.cedula,
     });
-    if (abonadoExistente) {
+    if (cedulaExistente) {
       throw new BadRequestException(
         `Ya existe un abonado registrado con la cédula ${createAbonadoDto.cedula}`,
+      );
+    }
+
+    const correoExistente = await this.abonadoRepository.findOneBy({
+      correo: createAbonadoDto.correo,
+    });
+    if (correoExistente) {
+      throw new BadRequestException(
+        `Ya existe un abonado registrado con el correo ${createAbonadoDto.correo}`,
+      );
+    }
+
+    const telefonoExistente = await this.abonadoRepository.findOneBy({
+      telefono: createAbonadoDto.telefono,
+    });
+    if (telefonoExistente) {
+      throw new BadRequestException(
+        `Ya existe un abonado registrado con el teléfono ${createAbonadoDto.telefono}`,
       );
     }
 
@@ -219,6 +240,30 @@ export class AbonadosService {
 
     // Revalida las reglas sobre la entidad ya fusionada, según su tipo real
     this.validarDatosAbonado(abonado);
+
+    // Si el correo o el teléfono cambiaron, evitar que queden duplicados
+    // con OTRO abonado (se excluye el propio registro de la búsqueda).
+    if (cambios['correo'] !== undefined) {
+      const otroConCorreo = await this.abonadoRepository.findOneBy({
+        correo: abonado.correo,
+      });
+      if (otroConCorreo && otroConCorreo.id !== abonado.id) {
+        throw new BadRequestException(
+          `Ya existe un abonado registrado con el correo ${abonado.correo}`,
+        );
+      }
+    }
+
+    if (cambios['telefono'] !== undefined) {
+      const otroConTelefono = await this.abonadoRepository.findOneBy({
+        telefono: abonado.telefono,
+      });
+      if (otroConTelefono && otroConTelefono.id !== abonado.id) {
+        throw new BadRequestException(
+          `Ya existe un abonado registrado con el teléfono ${abonado.telefono}`,
+        );
+      }
+    }
 
     const guardado = await this.abonadoRepository.save(abonado);
 
