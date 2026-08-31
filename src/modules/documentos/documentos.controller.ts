@@ -10,7 +10,9 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Request,
 } from '@nestjs/common';
+import type { RequestUser } from '../auth/strategies/jwt.strategy';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
@@ -85,9 +87,14 @@ export class DocumentosController {
   )
   create(
     @Body() createDocumentoDto: CreateDocumentoDto,
+    @Request() req: { user?: RequestUser },
     @UploadedFile() archivo?: Express.Multer.File,
   ) {
-    return this.documentosService.create(createDocumentoDto, archivo);
+    return this.documentosService.create(
+      createDocumentoDto,
+      archivo,
+      req.user?.id,
+    );
   }
 
   @Get()

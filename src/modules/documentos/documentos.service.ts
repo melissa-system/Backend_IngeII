@@ -13,17 +13,21 @@ import {
   VisibilidadDocumento,
   EstadoDocumento,
 } from './enums/documento.enums';
+import { User } from '../auth/entities/user.entity';
 
 @Injectable()
 export class DocumentosService {
   constructor(
     @InjectRepository(Documento)
     private readonly documentoRepository: Repository<Documento>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
   ) {}
 
   async create(
     createDocumentoDto: CreateDocumentoDto,
     archivo?: Express.Multer.File,
+    usuarioId?: number,
   ): Promise<Documento> {
     // 1. Nombre obligatorio
     if (!createDocumentoDto.nombre || createDocumentoDto.nombre.trim() === '') {
@@ -84,7 +88,12 @@ export class DocumentosService {
       await this.documentoRepository.save(anterior);
     }
 
-    // 6. Crear el registro nuevo, vigente por defecto
+    // 6. Quién lo sube: el usuario autenticado que hace la petición (si lo hay).
+    const subidoPor = usuarioId
+      ? await this.userRepository.findOneBy({ id: usuarioId })
+      : null;
+
+    // 7. Crear el registro nuevo, vigente por defecto
     const nuevoDocumento = this.documentoRepository.create({
       nombre: createDocumentoDto.nombre,
       tipo: createDocumentoDto.tipo as TipoDocumento,
@@ -92,9 +101,10 @@ export class DocumentosService {
       ubicacion: archivo.filename,
       visibilidad: visibilidad as VisibilidadDocumento,
       estado: EstadoDocumento.VIGENTE,
+      subido_por: subidoPor,
     });
 
-    // 7. Guardar en MySQL
+    // 8. Guardar en MySQL
     return await this.documentoRepository.save(nuevoDocumento);
   }
 

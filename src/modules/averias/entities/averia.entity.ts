@@ -3,7 +3,10 @@ import {
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Empleado } from '../../empleados/entities/empleado.entity';
 
 // 1. Le decimos al ORM que esto se convertirá en la tabla 'averias' en MySQL
 @Entity('averias')
@@ -55,6 +58,13 @@ export class Averia {
   @CreateDateColumn()
   fecha_reporte: Date;
 
-  // NOTA: El campo fontanero_asignado_id lo agregaremos más adelante
-  // cuando hagamos las relaciones (FK) entre tablas.
+  // 9. Fontanero responsable del caso. NULL al crear el reporte: se
+  // completa después, cuando el personal administrativo asigna el caso al
+  // actualizar el estado (esa ruta de asignación todavía no existe —
+  // AveriasController solo tiene create/findAll — queda como tarea
+  // aparte). Apunta a empleados (no a usuarios) porque acá sí interesa
+  // identificar al funcionario específico, con sus datos de personal.
+  @ManyToOne(() => Empleado, { nullable: true })
+  @JoinColumn({ name: 'fontanero_asignado_id' })
+  fontanero_asignado: Empleado | null;
 }

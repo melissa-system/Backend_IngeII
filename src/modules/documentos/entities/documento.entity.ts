@@ -3,12 +3,15 @@ import {
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import {
   TipoDocumento,
   VisibilidadDocumento,
   EstadoDocumento,
 } from '../enums/documento.enums';
+import { User } from '../../auth/entities/user.entity';
 
 // 1. Le decimos al ORM que esto se convertirá en la tabla 'documentos' en MySQL
 @Entity('documentos')
@@ -65,4 +68,13 @@ export class Documento {
   // 9. Fecha y hora automática en la que se cargó este documento/versión en MySQL
   @CreateDateColumn()
   fecha_carga: Date;
+
+  // 10. Usuario autenticado que subió este documento/versión. Apunta a
+  // usuarios (no a empleados) a propósito: acá solo interesa saber qué
+  // cuenta hizo la carga, sin depender de que exista un registro de
+  // empleado. Nullable por si en algún momento se crea un documento sin
+  // usuario autenticado detrás (ej. un script de migración de datos).
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'subido_por_id' })
+  subido_por: User | null;
 }

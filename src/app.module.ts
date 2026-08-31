@@ -10,6 +10,7 @@ import { SolicitudesModule } from './modules/solicitudes/solicitudes.module';
 import { AbonadosModule } from './modules/abonados/abonados.module';
 import { PublicacionesModule } from './modules/publicaciones/publicaciones.module';
 import { DocumentosModule } from './modules/documentos/documentos.module';
+import { EmpleadosModule } from './modules/empleados/empleados.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { DocumentosModule } from './modules/documentos/documentos.module';
     AbonadosModule,
     PublicacionesModule,
     DocumentosModule,
+    EmpleadosModule,
   ],
   controllers: [AppController],
   providers: [AppService],

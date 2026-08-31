@@ -3,10 +3,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PublicacionesService } from './publicaciones.service';
 import { PublicacionesController } from './publicaciones.controller';
 import { Publicacion } from './entities/publicacion.entity';
+import { User } from '../auth/entities/user.entity';
 
 @Module({
-  // 1. Aquí le decimos a NestJS que este módulo utiliza la tabla de Publicaciones
-  imports: [TypeOrmModule.forFeature([Publicacion])],
+  // 1. Aquí le decimos a NestJS que este módulo utiliza la tabla de
+  // Publicaciones (más la de usuarios, para saber quién es el autor)
+  imports: [TypeOrmModule.forFeature([Publicacion, User])],
   // 2. Registramos el controlador que va a recibir las peticiones de React
   controllers: [PublicacionesController],
   // 3. Registramos el servicio que va a tener las reglas de negocio
