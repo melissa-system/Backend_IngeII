@@ -29,9 +29,12 @@ export class AveriasService {
       }
     }
 
-    // 3. Extraer o asignar cédula y nombre para los campos requeridos en la BD
+    // 3. Extraer o asignar cédula y nombre (dividido) para los campos
+    // requeridos en la BD
     const cedula = datosAveria.cedula_reportante || '504420101';
-    const nombre = datosAveria.nombre_reportante || 'OSCAR ANDRES AIZA ZUÑIGA';
+    const nombre = datosAveria.nombre_reportante || 'OSCAR ANDRES';
+    const apellido1 = datosAveria.apellido1_reportante || 'AIZA';
+    const apellido2 = datosAveria.apellido2_reportante || 'ZUÑIGA';
 
     // 4. Crear la entidad con todos los campos obligatorios completos
     const nuevaAveria = this.averiaRepository.create({
@@ -40,6 +43,8 @@ export class AveriasService {
       descripcion: datosAveria.descripcion || 'Sin descripción detallada',
       cedula_reportante: cedula,
       nombre_reportante: nombre,
+      apellido1_reportante: apellido1,
+      apellido2_reportante: apellido2 || undefined,
       estado: 'Pendiente',
     });
 

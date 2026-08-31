@@ -35,12 +35,21 @@ export class Averia {
   })
   estado: string;
 
-  // 7. Cédula y nombre de la persona que reporta el daño
+  // 7. Cédula y nombre de la persona que reporta el daño. El nombre se
+  // guarda dividido (nombre de pila + apellidos por separado) en vez de
+  // un solo string. apellido2 es nullable porque no toda persona tiene
+  // segundo apellido registrado.
   @Column()
   cedula_reportante: string;
 
   @Column()
   nombre_reportante: string;
+
+  @Column({ nullable: true })
+  apellido1_reportante: string;
+
+  @Column({ nullable: true })
+  apellido2_reportante: string;
 
   // 8. Fecha y hora automática en la que se registra el reporte en MySQL
   @CreateDateColumn()
