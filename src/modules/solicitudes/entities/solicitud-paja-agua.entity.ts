@@ -3,11 +3,20 @@ import {
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Abonado } from '../../abonados/entities/abonado.entity';
 
 // Tabla dedicada a las solicitudes de paja de agua (nueva conexión).
 // Más adelante se podrán agregar otras tablas de solicitudes
 // (cambio de domicilio, traslado de medidor, etc.).
+//
+// IMPORTANTE: esta tabla sigue siendo un snapshot independiente de
+// abonados. Los datos del solicitante (nombre, cédula, tipo, teléfono,
+// correo, dirección, representante) se guardan acá tal cual llegan del
+// formulario público, SIN relación a abonados en ese momento — todavía
+// no existe ni el abonado ni el usuario cuando se llena la solicitud.
 @Entity('solicitud_paja_agua')
 export class SolicitudPajaAgua {
   @PrimaryGeneratedColumn()
@@ -66,4 +75,13 @@ export class SolicitudPajaAgua {
 
   @CreateDateColumn()
   fecha_solicitud: Date;
+
+  // Trazabilidad histórica únicamente: NULL siempre hasta que el
+  // administrador aprueba la solicitud y crea el abonado (ver el flujo
+  // descrito en Abonado.usuario, punto 2 — todavía no implementado). No se
+  // usa ni se exige en el registro público ni en ningún paso previo a esa
+  // aprobación; nullable a propósito, no es parte del snapshot original.
+  @ManyToOne(() => Abonado, { nullable: true })
+  @JoinColumn({ name: 'abonado_id' })
+  abonado: Abonado | null;
 }
