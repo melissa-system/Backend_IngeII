@@ -21,7 +21,7 @@ export class RoleEntity {
   })
   permissions: Permission[];
 
-  @OneToMany(() => User, (user: User) => user.roleEntity)
+  @OneToMany(() => User, (user: User) => user.role)
   users: User[];
 
   @CreateDateColumn({ name: 'created_at' })

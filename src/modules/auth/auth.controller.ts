@@ -90,14 +90,14 @@ export class AuthController {
     @Body() _loginDto: LoginDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ accessToken: string; user: Pick<User, 'id' | 'email' | 'role'> }> {
+  ): Promise<{ accessToken: string; user: { id: number; email: string; role: string } }> {
     const user = req.user as User;
     const { accessToken, refreshToken } = await this.authService.login(user);
     this.emitirCookieRefresh(res, refreshToken);
 
     return {
       accessToken,
-      user: { id: user.id, email: user.email, role: user.role },
+      user: { id: user.id, email: user.email, role: user.role.name },
     };
   }
 
@@ -142,7 +142,7 @@ export class AuthController {
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ accessToken: string; user: Pick<User, 'id' | 'email' | 'role'> }> {
+  ): Promise<{ accessToken: string; user: { id: number; email: string; role: string } }> {
     const tokenPlano = req.cookies?.[REFRESH_COOKIE];
     if (!tokenPlano) {
       throw new UnauthorizedException('Sesión inválida');
@@ -154,7 +154,7 @@ export class AuthController {
 
     return {
       accessToken,
-      user: { id: user.id, email: user.email, role: user.role },
+      user: { id: user.id, email: user.email, role: user.role.name },
     };
   }
 
@@ -166,7 +166,7 @@ export class AuthController {
   @Get('perfil')
   async perfil(
     @Req() req: Request,
-  ): Promise<Pick<User, 'id' | 'email' | 'role'>> {
+  ): Promise<{ id: number; email: string; role: string }> {
     const { id } = req.user as { id: number };
     return this.authService.obtenerPerfil(id);
   }

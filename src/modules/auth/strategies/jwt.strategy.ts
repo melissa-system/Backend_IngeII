@@ -38,7 +38,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const user = await this.userRepository.findOne({
       where: { id: payload.sub },
       relations: {
-        roleEntity: {
+        role: {
           permissions: true,
         },
       },
@@ -48,12 +48,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Sesión inválida o usuario inactivo');
     }
 
-    const permissions =
-      user.roleEntity?.permissions?.map((p) => p.name) || [];
+    const permissions = user.role?.permissions?.map((p) => p.name) || [];
 
     return {
       id: user.id,
-      role: user.role,
+      role: user.role.name,
       permissions,
     };
   }

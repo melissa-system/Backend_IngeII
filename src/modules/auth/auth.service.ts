@@ -14,9 +14,11 @@ import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { RoleEntity } from './entities/role.entity';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { BCRYPT_COST } from './auth-password.config';
 import { MailService } from './mail.service';
+import { Role } from '../../common/enums/roles.enum';
 
 @Injectable()
 export class AuthService {
@@ -29,6 +31,8 @@ export class AuthService {
     private readonly passwordResetTokenRepository: Repository<PasswordResetToken>,
     @InjectRepository(ActivationToken)
     private readonly activationTokenRepository: Repository<ActivationToken>,
+    @InjectRepository(RoleEntity)
+    private readonly roleRepository: Repository<RoleEntity>,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
@@ -58,7 +62,8 @@ export class AuthService {
     user: User,
   ): Promise<{ accessToken: string; refreshToken: string }> {
     // Access Token de corta duración con el payload que consumen los guards.
-    const payload: JwtPayload = { sub: user.id, role: user.role };
+    // (user.role es eager, así que ya viene cargado por validateUser()).
+    const payload: JwtPayload = { sub: user.id, role: user.role.name };
     const accessToken = this.jwtService.sign(payload);
 
     // Refresh Token opaco (aleatorio): viaja en cookie httpOnly y en BD va hasheado.
@@ -104,6 +109,9 @@ export class AuthService {
     const fila = await this.refreshTokenRepository
       .createQueryBuilder('rt')
       .leftJoinAndSelect('rt.usuario', 'u')
+      // Query builder no aplica el eager:true de la entidad automáticamente;
+      // hay que traer la relación a mano para tener u.role.name disponible.
+      .leftJoinAndSelect('u.role', 'r')
       .where('rt.token_hash = :hash', {
         hash: AuthService.hashRefreshToken(tokenPlano),
       })
@@ -126,7 +134,7 @@ export class AuthService {
 
     const payload: JwtPayload = {
       sub: fila.usuario.id,
-      role: fila.usuario.role,
+      role: fila.usuario.role.name,
     };
     return {
       accessToken: this.jwtService.sign(payload),
@@ -140,7 +148,7 @@ export class AuthService {
   // expirado todavía.
   async obtenerPerfil(
     usuarioId: number,
-  ): Promise<Pick<User, 'id' | 'email' | 'role'>> {
+  ): Promise<{ id: number; email: string; role: string }> {
     const user = await this.userRepository.findOne({
       where: { id: usuarioId },
     });
@@ -149,7 +157,7 @@ export class AuthService {
       throw new UnauthorizedException('Sesión inválida');
     }
 
-    return { id: user.id, email: user.email, role: user.role };
+    return { id: user.id, email: user.email, role: user.role.name };
   }
 
   // Cierra la sesión revocando el Refresh Token (logout). Revocación suave
@@ -332,10 +340,22 @@ export class AuthService {
       throw new BadRequestException('Ya existe una cuenta con ese correo');
     }
 
+    // Antes lo cubría el default del enum (Role.ABONADO); ahora que role_id
+    // es una FK obligatoria, hay que asignar la fila explícitamente.
+    const rolAbonado = await this.roleRepository.findOne({
+      where: { name: Role.ABONADO },
+    });
+    if (!rolAbonado) {
+      throw new InternalServerErrorException(
+        `No existe el rol '${Role.ABONADO}' en la tabla roles. Corré "npm run seed:roles".`,
+      );
+    }
+
     const user = this.userRepository.create({
       email,
       password: await bcrypt.hash(password, BCRYPT_COST),
       isActive: false,
+      role: rolAbonado,
     });
     await this.userRepository.save(user);
 
