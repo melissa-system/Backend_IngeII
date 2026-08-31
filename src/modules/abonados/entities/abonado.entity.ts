@@ -3,7 +3,10 @@ import {
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
+  OneToOne,
+  JoinColumn,
 } from 'typeorm';
+import { User } from '../../auth/entities/user.entity';
 
 // 1. Le decimos al ORM que esto se convertirá en la tabla 'abonados' en MySQL
 @Entity('abonados')
@@ -59,4 +62,16 @@ export class Abonado {
   // 10. Fecha y hora automática en la que se registra el abonado en MySQL
   @CreateDateColumn()
   fecha_registro: Date;
+
+  // 11. Cuenta de acceso vinculada a este abonado. NULL mientras la solicitud
+  // de paja de agua está pendiente/en revisión: el flujo real es que la
+  // persona llena el formulario público SIN que se le cree usuario todavía;
+  // el administrador crea el registro de abonado al aprobar, y es en ESE
+  // momento que se crea (o vincula) el usuario con sus credenciales y se le
+  // notifican por correo. Un abonado puede existir sin usuario asociado
+  // (por eso nullable), pero un usuario no debería quedar asociado a más de
+  // un abonado (por eso es OneToOne y no ManyToOne).
+  @OneToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'usuario_id' })
+  usuario: User | null;
 }
