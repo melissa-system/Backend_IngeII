@@ -4,12 +4,40 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Like, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Abonado } from './entities/abonado.entity';
 import { HistorialAbonado } from './entities/historial-abonado.entity';
 import { CreateAbonadoDto } from './dto/create-abonado.dto';
 import { UpdateAbonadoDto } from './dto/update-abonado.dto';
 import { User } from '../auth/entities/user.entity';
+
+// Forma "plana" que consume el frontend: junta la fila base con los campos
+// de la subtabla que corresponda (fisico o juridico) en un solo objeto,
+// igual que antes de normalizar la tabla en abonados/abonados_fisicos/
+// abonados_juridicos. Así el resto del sistema no tiene que saber que por
+// dentro son 3 tablas.
+export interface AbonadoPlano {
+  id: number;
+  numero_abonado: string;
+  tipo_abonado: string;
+  nombre: string;
+  cedula: string;
+  telefono: string;
+  correo: string;
+  direccion: string;
+  estado: string;
+  fecha_registro: Date;
+  usuario_id: number | null;
+  // Solo física
+  apellido1: string | null;
+  apellido2: string | null;
+  numero_plano_catastrado: string | null;
+  // Solo jurídica
+  nombre_representante_legal: string | null;
+  cedula_representante: string | null;
+}
+
+const RELACIONES_DETALLE = { fisico: true, juridico: true, usuario: true } as const;
 
 @Injectable()
 export class AbonadosService {
@@ -21,6 +49,28 @@ export class AbonadosService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
   ) {}
+
+  private aPlano(abonado: Abonado): AbonadoPlano {
+    return {
+      id: abonado.id,
+      numero_abonado: abonado.numero_abonado,
+      tipo_abonado: abonado.tipo_abonado,
+      nombre: abonado.nombre,
+      cedula: abonado.cedula,
+      telefono: abonado.telefono,
+      correo: abonado.correo,
+      direccion: abonado.direccion,
+      estado: abonado.estado,
+      fecha_registro: abonado.fecha_registro,
+      usuario_id: abonado.usuario?.id ?? null,
+      apellido1: abonado.fisico?.apellido1 ?? null,
+      apellido2: abonado.fisico?.apellido2 ?? null,
+      numero_plano_catastrado: abonado.fisico?.numero_plano_catastrado ?? null,
+      nombre_representante_legal:
+        abonado.juridico?.nombre_representante_legal ?? null,
+      cedula_representante: abonado.juridico?.cedula_representante ?? null,
+    };
+  }
 
   // Uniforma teléfonos de 8 dígitos al formato XXXX-XXXX. Cualquier otro
   // formato (internacionales, extensiones, etc.) se respeta tal cual.
@@ -48,17 +98,20 @@ export class AbonadosService {
     return String(cedula).trim();
   }
 
-  // Reglas de negocio compartidas entre creación y actualización:
-  // campos obligatorios, representante legal para jurídicas y
-  // formato básico del correo.
+  // Reglas de negocio compartidas entre creación y actualización: campos
+  // obligatorios de la tabla base, y los exclusivos de cada subtabla según
+  // tipo_abonado (apellido1 para física; representante legal + su cédula
+  // para jurídica).
   private validarDatosAbonado(datos: {
     tipo_abonado: string;
-    nombre_completo?: string | null;
+    nombre?: string | null;
     cedula?: string | null;
-    nombre_representante_legal?: string | null;
     telefono?: string | null;
     correo?: string | null;
     direccion?: string | null;
+    apellido1?: string | null;
+    nombre_representante_legal?: string | null;
+    cedula_representante?: string | null;
   }): void {
     // Antes de validar se uniforma el formato: si el usuario no escribió
     // los guiones del teléfono o la cédula, se agregan automáticamente.
@@ -66,7 +119,7 @@ export class AbonadosService {
     datos.cedula = this.formatearCedula(datos.cedula);
 
     const camposObligatorios = [
-      'nombre_completo',
+      'nombre',
       'cedula',
       'telefono',
       'correo',
@@ -75,20 +128,36 @@ export class AbonadosService {
     for (const campo of camposObligatorios) {
       const valor = datos[campo];
       if (!valor || String(valor).trim() === '') {
-        throw new BadRequestException(
-          `El campo '${campo}' es obligatorio`,
-        );
+        throw new BadRequestException(`El campo '${campo}' es obligatorio`);
       }
     }
 
     if (
-      datos.tipo_abonado === 'Jurídica' &&
-      (!datos.nombre_representante_legal ||
-        datos.nombre_representante_legal.trim() === '')
+      datos.tipo_abonado === 'Física' &&
+      (!datos.apellido1 || datos.apellido1.trim() === '')
     ) {
       throw new BadRequestException(
-        `El campo 'nombre_representante_legal' es obligatorio para personas jurídicas`,
+        `El campo 'apellido1' es obligatorio para personas físicas`,
       );
+    }
+
+    if (datos.tipo_abonado === 'Jurídica') {
+      if (
+        !datos.nombre_representante_legal ||
+        datos.nombre_representante_legal.trim() === ''
+      ) {
+        throw new BadRequestException(
+          `El campo 'nombre_representante_legal' es obligatorio para personas jurídicas`,
+        );
+      }
+      if (
+        !datos.cedula_representante ||
+        datos.cedula_representante.trim() === ''
+      ) {
+        throw new BadRequestException(
+          `El campo 'cedula_representante' es obligatorio para personas jurídicas`,
+        );
+      }
     }
 
     if (!String(datos.correo).includes('@')) {
@@ -96,7 +165,7 @@ export class AbonadosService {
     }
   }
 
-  async create(createAbonadoDto: CreateAbonadoDto): Promise<Abonado> {
+  async create(createAbonadoDto: CreateAbonadoDto): Promise<AbonadoPlano> {
     // 1. Validar que el tipo de abonado sea uno de los permitidos
     const tiposPermitidos = ['Física', 'Jurídica'];
     if (!tiposPermitidos.includes(createAbonadoDto.tipo_abonado)) {
@@ -105,13 +174,10 @@ export class AbonadosService {
       );
     }
 
-    // 2-4. Validar campos obligatorios, representante legal (jurídicas) y correo
+    // 2-4. Validar campos obligatorios de la base y de la subtabla que aplique
     this.validarDatosAbonado(createAbonadoDto);
 
     // 5. Evitar abonados duplicados por número de cédula, correo o teléfono.
-    // (createAbonadoDto.telefono ya llega formateado XXXX-XXXX gracias a
-    // validarDatosAbonado, así que la comparación es consistente con lo
-    // que queda guardado en la BD).
     const cedulaExistente = await this.abonadoRepository.findOneBy({
       cedula: createAbonadoDto.cedula,
     });
@@ -144,53 +210,85 @@ export class AbonadosService {
     const totalAbonados = await this.abonadoRepository.count();
     const numeroAbonado = `AB-${anioActual}-${String(totalAbonados + 1).padStart(4, '0')}`;
 
-    // 7. Crear el registro con estado "Activo" por defecto
+    // 7. Armar la fila base + la fila de la subtabla que corresponda.
+    // Gracias a cascade:true en Abonado.fisico/Abonado.juridico, un solo
+    // .save() inserta ambas filas en una sola operación transaccional (no
+    // puede quedar un abonado sin su detalle a medio guardar).
     const nuevoAbonado = this.abonadoRepository.create({
       numero_abonado: numeroAbonado,
       tipo_abonado: createAbonadoDto.tipo_abonado,
-      nombre_completo: createAbonadoDto.nombre_completo,
-      nombre_representante_legal:
-        createAbonadoDto.nombre_representante_legal || undefined,
+      nombre: createAbonadoDto.nombre,
       cedula: createAbonadoDto.cedula,
       telefono: createAbonadoDto.telefono,
       correo: createAbonadoDto.correo,
       direccion: createAbonadoDto.direccion,
-      numero_plano_catastrado:
-        createAbonadoDto.numero_plano_catastrado || undefined,
       estado: 'Activo',
+      fisico:
+        createAbonadoDto.tipo_abonado === 'Física'
+          ? {
+              apellido1: createAbonadoDto.apellido1 ?? null,
+              apellido2: createAbonadoDto.apellido2 || null,
+              numero_plano_catastrado:
+                createAbonadoDto.numero_plano_catastrado || null,
+            }
+          : null,
+      juridico:
+        createAbonadoDto.tipo_abonado === 'Jurídica'
+          ? {
+              nombre_representante_legal:
+                createAbonadoDto.nombre_representante_legal ?? null,
+              cedula_representante:
+                createAbonadoDto.cedula_representante ?? null,
+            }
+          : null,
     });
 
-    // 8. Guardar en MySQL
-    return await this.abonadoRepository.save(nuevoAbonado);
+    const guardado = await this.abonadoRepository.save(nuevoAbonado);
+    return this.aPlano(await this.cargarConDetalle(guardado.id));
+  }
+
+  private async cargarConDetalle(id: number): Promise<Abonado> {
+    const abonado = await this.abonadoRepository.findOne({
+      where: { id },
+      relations: RELACIONES_DETALLE,
+    });
+    if (!abonado) {
+      throw new NotFoundException(`El abonado con el ID ${id} no fue encontrado`);
+    }
+    return abonado;
   }
 
   // Lista todos los abonados o filtra en SQL cuando llega ?buscar=<texto>.
-  async findAll(buscar?: string): Promise<Abonado[]> {
+  // La búsqueda incluye apellido1/apellido2 (viven en abonados_fisicos)
+  // además de los campos de la tabla base.
+  async findAll(buscar?: string): Promise<AbonadoPlano[]> {
+    const query = this.abonadoRepository
+      .createQueryBuilder('a')
+      .leftJoinAndSelect('a.fisico', 'fisico')
+      .leftJoinAndSelect('a.juridico', 'juridico')
+      .leftJoinAndSelect('a.usuario', 'usuario');
+
     const texto = buscar?.trim();
-    if (!texto) {
-      return await this.abonadoRepository.find();
-    }
-
-    const patron = `%${texto}%`;
-    return await this.abonadoRepository.find({
-      where: [
-        { nombre_completo: Like(patron) },
-        { cedula: Like(patron) },
-        { numero_abonado: Like(patron) },
-        { telefono: Like(patron) },
-        { direccion: Like(patron) },
-      ],
-    });
-  }
-
-  async findOne(id: number): Promise<Abonado> {
-    const abonado = await this.abonadoRepository.findOneBy({ id });
-    if (!abonado) {
-      throw new NotFoundException(
-        `El abonado con el ID ${id} no fue encontrado`,
+    if (texto) {
+      const patron = `%${texto}%`;
+      query.andWhere(
+        `(a.nombre LIKE :patron
+          OR a.cedula LIKE :patron
+          OR a.numero_abonado LIKE :patron
+          OR a.telefono LIKE :patron
+          OR a.direccion LIKE :patron
+          OR fisico.apellido1 LIKE :patron
+          OR fisico.apellido2 LIKE :patron)`,
+        { patron },
       );
     }
-    return abonado;
+
+    const abonados = await query.getMany();
+    return abonados.map((a) => this.aPlano(a));
+  }
+
+  async findOne(id: number): Promise<AbonadoPlano> {
+    return this.aPlano(await this.cargarConDetalle(id));
   }
 
   // Actualización parcial de los datos de contacto del abonado.
@@ -200,30 +298,37 @@ export class AbonadosService {
     id: number,
     updateAbonadoDto: UpdateAbonadoDto,
     usuarioId?: number,
-  ): Promise<Abonado> {
-    const abonado = await this.findOne(id);
+  ): Promise<AbonadoPlano> {
+    const abonado = await this.cargarConDetalle(id);
 
     const original: Record<string, string | null> = {
-      nombre_completo: abonado.nombre_completo,
-      nombre_representante_legal: abonado.nombre_representante_legal,
+      nombre: abonado.nombre,
       telefono: abonado.telefono,
       correo: abonado.correo,
       direccion: abonado.direccion,
-      numero_plano_catastrado: abonado.numero_plano_catastrado,
+      apellido1: abonado.fisico?.apellido1 ?? null,
+      apellido2: abonado.fisico?.apellido2 ?? null,
+      numero_plano_catastrado: abonado.fisico?.numero_plano_catastrado ?? null,
+      nombre_representante_legal:
+        abonado.juridico?.nombre_representante_legal ?? null,
+      cedula_representante: abonado.juridico?.cedula_representante ?? null,
     };
 
     // Solo se aplican los campos enviados. Un string vacío en un campo
     // opcional limpia el valor (queda NULL), igual que al crear.
     const cambios: Record<string, string | null> = {};
-    const camposTexto = [
-      'nombre_completo',
-      'nombre_representante_legal',
+    const camposEditables = [
+      'nombre',
       'telefono',
       'correo',
       'direccion',
+      'apellido1',
+      'apellido2',
       'numero_plano_catastrado',
+      'nombre_representante_legal',
+      'cedula_representante',
     ];
-    for (const campo of camposTexto) {
+    for (const campo of camposEditables) {
       const valor = (updateAbonadoDto as Record<string, unknown>)[campo];
       if (valor === undefined) continue;
       const texto = String(valor).trim();
@@ -236,10 +341,58 @@ export class AbonadosService {
       cambios['telefono'] = this.formatearTelefono(cambios['telefono']);
     }
 
-    Object.assign(abonado, cambios);
+    const camposBase = ['nombre', 'telefono', 'correo', 'direccion'];
+    for (const campo of camposBase) {
+      if (cambios[campo] !== undefined) {
+        (abonado as unknown as Record<string, string | null>)[campo] =
+          cambios[campo];
+      }
+    }
+
+    if (abonado.tipo_abonado === 'Física') {
+      if (!abonado.fisico) {
+        abonado.fisico = {
+          apellido1: null,
+          apellido2: null,
+          numero_plano_catastrado: null,
+        } as Abonado['fisico'];
+      }
+      const camposFisico = ['apellido1', 'apellido2', 'numero_plano_catastrado'];
+      for (const campo of camposFisico) {
+        if (cambios[campo] !== undefined) {
+          (abonado.fisico as unknown as Record<string, string | null>)[campo] =
+            cambios[campo];
+        }
+      }
+    } else if (abonado.tipo_abonado === 'Jurídica') {
+      if (!abonado.juridico) {
+        abonado.juridico = {
+          nombre_representante_legal: null,
+          cedula_representante: null,
+        } as Abonado['juridico'];
+      }
+      const camposJuridico = ['nombre_representante_legal', 'cedula_representante'];
+      for (const campo of camposJuridico) {
+        if (cambios[campo] !== undefined) {
+          (abonado.juridico as unknown as Record<string, string | null>)[
+            campo
+          ] = cambios[campo];
+        }
+      }
+    }
 
     // Revalida las reglas sobre la entidad ya fusionada, según su tipo real
-    this.validarDatosAbonado(abonado);
+    this.validarDatosAbonado({
+      tipo_abonado: abonado.tipo_abonado,
+      nombre: abonado.nombre,
+      cedula: abonado.cedula,
+      telefono: abonado.telefono,
+      correo: abonado.correo,
+      direccion: abonado.direccion,
+      apellido1: abonado.fisico?.apellido1,
+      nombre_representante_legal: abonado.juridico?.nombre_representante_legal,
+      cedula_representante: abonado.juridico?.cedula_representante,
+    });
 
     // Si el correo o el teléfono cambiaron, evitar que queden duplicados
     // con OTRO abonado (se excluye el propio registro de la búsqueda).
@@ -265,13 +418,15 @@ export class AbonadosService {
       }
     }
 
+    // cascade:true guarda también la subtabla (fisico o juridico) que se
+    // haya modificado, en la misma operación.
     const guardado = await this.abonadoRepository.save(abonado);
 
     if (usuarioId !== undefined) {
       await this.registrarHistorial(guardado.id, original, cambios, usuarioId);
     }
 
-    return guardado;
+    return this.aPlano(await this.cargarConDetalle(guardado.id));
   }
 
   // Cambio de estado operativo del abonado (Activo <-> Inactivo) desde
@@ -281,12 +436,12 @@ export class AbonadosService {
     id: number,
     nuevoEstado: string,
     usuarioId?: number,
-  ): Promise<Abonado> {
-    const abonado = await this.findOne(id);
+  ): Promise<AbonadoPlano> {
+    const abonado = await this.cargarConDetalle(id);
     const estadoAnterior = abonado.estado;
 
     if (estadoAnterior === nuevoEstado) {
-      return abonado;
+      return this.aPlano(abonado);
     }
 
     abonado.estado = nuevoEstado;
@@ -301,7 +456,7 @@ export class AbonadosService {
       );
     }
 
-    return guardado;
+    return this.aPlano(guardado);
   }
 
   // Guarda una fila por cada campo cuyo valor cambió realmente.

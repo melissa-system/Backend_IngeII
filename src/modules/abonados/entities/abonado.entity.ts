@@ -7,8 +7,13 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { User } from '../../auth/entities/user.entity';
+import { AbonadoFisico } from './abonado-fisico.entity';
+import { AbonadoJuridico } from './abonado-juridico.entity';
 
 // 1. Le decimos al ORM que esto se convertirá en la tabla 'abonados' en MySQL
+// Tabla base normalizada: los campos exclusivos de cada tipo viven en
+// abonados_fisicos / abonados_juridicos (ver esos archivos y la migración
+// CrearAbonadosFisicosYJuridicos).
 @Entity('abonados')
 export class Abonado {
   // 2. Llave primaria auto-incrementable (id INT PK)
@@ -19,22 +24,21 @@ export class Abonado {
   @Column({ unique: true })
   numero_abonado: string;
 
-  // 4. Tipo de abonado: define qué campos aplican (física vs jurídica)
+  // 4. Tipo de abonado: define qué campos aplican (física vs jurídica) y
+  // en qué subtabla vive el detalle (abonados_fisicos / abonados_juridicos)
   @Column({
     type: 'enum',
     enum: ['Física', 'Jurídica'],
   })
   tipo_abonado: string;
 
-  // 5. Nombre completo (persona física) o razón social (persona jurídica)
+  // 5. Persona física: nombre (de pila). Persona jurídica: razón social.
+  // Los apellidos de una persona física NO van acá (una jurídica no tiene
+  // apellidos) — viven en abonados_fisicos.apellido1/apellido2.
   @Column()
-  nombre_completo: string;
+  nombre: string;
 
-  // 6. Solo aplica a persona jurídica
-  @Column({ nullable: true })
-  nombre_representante_legal: string;
-
-  // 7. Cédula física o cédula jurídica, según el tipo. Debe ser única.
+  // 6. Cédula física o cédula jurídica, según el tipo. Debe ser única.
   @Column({ unique: true })
   cedula: string;
 
@@ -47,9 +51,18 @@ export class Abonado {
   @Column()
   direccion: string;
 
-  // 8. Solo aplica a persona física, y es opcional dentro de ese caso
-  @Column({ nullable: true })
-  numero_plano_catastrado: string;
+  // 7. Detalle exclusivo de persona física. undefined/null si tipo_abonado
+  // es 'Jurídica'. Se crea junto con la fila base en AbonadosService.create
+  // (misma transacción).
+  @OneToOne(() => AbonadoFisico, (fisico) => fisico.abonado, { cascade: true })
+  fisico?: AbonadoFisico | null;
+
+  // 8. Detalle exclusivo de persona jurídica. undefined/null si tipo_abonado
+  // es 'Física'.
+  @OneToOne(() => AbonadoJuridico, (juridico) => juridico.abonado, {
+    cascade: true,
+  })
+  juridico?: AbonadoJuridico | null;
 
   // 9. Estado del abonado dentro del sistema, activo por defecto al registrarse
   @Column({
