@@ -11,6 +11,8 @@ import { RoleEntity } from './entities/role.entity';
 import { Permission } from './entities/permission.entity';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { ActivationToken } from './entities/activation-token.entity';
+import { Empleado } from '../empleados/entities/empleado.entity';
+import { Abonado } from '../abonados/entities/abonado.entity';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { RolesService } from './roles.service';
@@ -30,6 +32,8 @@ import { POLITICA_LOGIN_THROTTLE } from './auth-throttle.config';
       Permission,
       PasswordResetToken,
       ActivationToken,
+      Empleado,
+      Abonado,
     ]),
     PassportModule,
     ThrottlerModule.forRoot([POLITICA_LOGIN_THROTTLE.default]),

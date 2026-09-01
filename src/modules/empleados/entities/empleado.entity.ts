@@ -8,20 +8,19 @@ import {
 } from 'typeorm';
 import { User } from '../../auth/entities/user.entity';
 
-// Tabla espejo de Abonado, pero para el personal interno de la ASADA
-// (administrativos, fontaneros, miembros de junta). Todo empleado tiene
-// cuenta de acceso (a diferencia de un abonado, cuyo usuario es opcional
-// hasta que se le crea una cuenta): por eso usuario es obligatorio acá.
+// Tabla de datos del personal interno de la ASADA (administrativos,
+// fontaneros, miembros de junta). El usuario es opcional: se puede
+// crear un empleado primero y vincularle una cuenta después.
 @Entity('empleados')
 export class Empleado {
   @PrimaryGeneratedColumn()
   id: number;
 
-  // Cuenta de acceso del empleado. Obligatoria: todo empleado necesita
-  // poder iniciar sesión en el sistema.
-  @OneToOne(() => User, { nullable: false })
+  // Cuenta de acceso vinculada. Opcional: un empleado puede existir
+  // sin usuario para después asignarle credenciales.
+  @OneToOne(() => User, { nullable: true })
   @JoinColumn({ name: 'usuario_id' })
-  usuario: User;
+  usuario: User | null;
 
   // Nombre de pila. Los apellidos van por separado (igual que en Abonado):
   // un empleado siempre es persona física, así que no hace falta la
@@ -29,8 +28,8 @@ export class Empleado {
   @Column()
   nombre: string;
 
-  @Column()
-  apellido1: string;
+  @Column({ nullable: true })
+  apellido1: string | null;
 
   @Column({ nullable: true })
   apellido2: string | null;
@@ -46,6 +45,12 @@ export class Empleado {
 
   @Column()
   telefono: string;
+
+  // Correo del empleado. Se guarda siempre (incluso si aún no existe una
+  // cuenta de usuario): sirve para vincular después al usuario que se cree
+  // con ese mismo correo desde el módulo de Usuarios.
+  @Column({ nullable: true })
+  correo: string | null;
 
   @Column({ type: 'date' })
   fecha_ingreso: string;

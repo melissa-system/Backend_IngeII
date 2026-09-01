@@ -100,8 +100,7 @@ export class AbonadosService {
 
   // Reglas de negocio compartidas entre creación y actualización: campos
   // obligatorios de la tabla base, y los exclusivos de cada subtabla según
-  // tipo_abonado (apellido1 para física; representante legal + su cédula
-  // para jurídica).
+  // tipo_abonado (representante legal + su cédula para jurídica).
   private validarDatosAbonado(datos: {
     tipo_abonado: string;
     nombre?: string | null;
@@ -130,15 +129,6 @@ export class AbonadosService {
       if (!valor || String(valor).trim() === '') {
         throw new BadRequestException(`El campo '${campo}' es obligatorio`);
       }
-    }
-
-    if (
-      datos.tipo_abonado === 'Física' &&
-      (!datos.apellido1 || datos.apellido1.trim() === '')
-    ) {
-      throw new BadRequestException(
-        `El campo 'apellido1' es obligatorio para personas físicas`,
-      );
     }
 
     if (datos.tipo_abonado === 'Jurídica') {

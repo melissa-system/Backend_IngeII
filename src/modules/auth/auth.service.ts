@@ -20,6 +20,11 @@ import { JwtPayload } from './strategies/jwt.strategy';
 import { BCRYPT_COST } from './auth-password.config';
 import { MailService } from './mail.service';
 import { Role } from '../../common/enums/roles.enum';
+import { Empleado } from '../empleados/entities/empleado.entity';
+import { Abonado } from '../abonados/entities/abonado.entity';
+import { ActualizarPerfilDto } from './dto/actualizar-perfil.dto';
+import { unlinkSync } from 'fs';
+import { join } from 'path';
 
 @Injectable()
 export class AuthService {
@@ -34,6 +39,10 @@ export class AuthService {
     private readonly activationTokenRepository: Repository<ActivationToken>,
     @InjectRepository(RoleEntity)
     private readonly roleRepository: Repository<RoleEntity>,
+    @InjectRepository(Empleado)
+    private readonly empleadoRepository: Repository<Empleado>,
+    @InjectRepository(Abonado)
+    private readonly abonadoRepository: Repository<Abonado>,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
@@ -297,6 +306,17 @@ export class AuthService {
     });
     await this.userRepository.save(user);
 
+    // Vincular automáticamente con un abonado existente que tenga el mismo
+    // correo. Esto conecta la cuenta de acceso con el registro del abonado
+    // en la tabla abonados, para que el perfil muestre sus datos.
+    const abonado = await this.abonadoRepository.findOne({
+      where: { correo: email },
+    });
+    if (abonado) {
+      abonado.usuario = user;
+      await this.abonadoRepository.save(abonado);
+    }
+
     const tokenPlano = randomBytes(32).toString('hex');
     const horas = Number(
       this.configService.get<string>('ACCOUNT_ACTIVATION_EXPIRES_HOURS') ??
@@ -472,7 +492,13 @@ export class AuthService {
     email: string,
     passwordPlano: string,
     roleId: number,
-  ): Promise<{ id: number; email: string; role: string; isActive: boolean }> {
+  ): Promise<{
+    id: number;
+    email: string;
+    role: string;
+    isActive: boolean;
+    asociacion: 'abonado' | 'empleado' | null;
+  }> {
     const existe = await this.userRepository.findOne({ where: { email } });
     if (existe) {
       throw new BadRequestException('Ya existe una cuenta con ese correo electrónico');
@@ -494,11 +520,192 @@ export class AuthService {
 
     const guardado = await this.userRepository.save(nuevoUsuario);
 
+    // Vincular automáticamente con un abonado o empleado que tenga el
+    // mismo correo (y que aún no tenga cuenta asociada). Prioridad:
+    // primero el abonado, luego el empleado.
+    let asociacion: 'abonado' | 'empleado' | null = null;
+    const abonado = await this.abonadoRepository.findOne({
+      where: { correo: email, usuario: IsNull() },
+    });
+    if (abonado) {
+      abonado.usuario = guardado;
+      await this.abonadoRepository.save(abonado);
+      asociacion = 'abonado';
+    } else {
+      const empleado = await this.empleadoRepository.findOne({
+        where: { correo: email, usuario: IsNull() },
+      });
+      if (empleado) {
+        empleado.usuario = guardado;
+        await this.empleadoRepository.save(empleado);
+        asociacion = 'empleado';
+      }
+    }
+
     return {
       id: guardado.id,
       email: guardado.email,
       role: guardado.role.name,
       isActive: guardado.isActive,
+      asociacion,
     };
+  }
+
+  // ── Perfil del usuario ────────────────────────────────────────────
+
+  /**
+   * Retorna el perfil completo del usuario: datos de la tabla usuarios
+   * más los datos del empleado o abonado asociado (nombre, cédula, etc.).
+   */
+  async obtenerPerfilCompleto(usuarioId: number) {
+    const user = await this.userRepository.findOne({
+      where: { id: usuarioId },
+      relations: { role: true },
+    });
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Sesión inválida');
+    }
+
+    // Buscar si es empleado
+    const empleado = await this.empleadoRepository.findOne({
+      where: { usuario: { id: usuarioId } },
+    });
+
+    if (empleado) {
+      return {
+        id: user.id,
+        email: user.email,
+        role: user.role.name,
+        foto_url: user.foto_url,
+        nombre: empleado.nombre,
+        apellido1: empleado.apellido1,
+        apellido2: empleado.apellido2,
+        cedula: empleado.cedula,
+        telefono: empleado.telefono,
+        puesto: empleado.puesto,
+        tipo_asociacion: 'empleado' as const,
+      };
+    }
+
+    // Buscar si es abonado
+    const abonado = await this.abonadoRepository.findOne({
+      where: { usuario: { id: usuarioId } },
+    });
+
+    if (abonado) {
+      return {
+        id: user.id,
+        email: user.email,
+        role: user.role.name,
+        foto_url: user.foto_url,
+        nombre: abonado.nombre,
+        apellido1: null,
+        apellido2: null,
+        cedula: abonado.cedula,
+        telefono: abonado.telefono,
+        direccion: abonado.direccion,
+        puesto: null,
+        tipo_asociacion: 'abonado' as const,
+      };
+    }
+
+    // Sin asociación (no debería pasar, pero se maneja)
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role.name,
+      foto_url: user.foto_url,
+      nombre: null,
+      apellido1: null,
+      apellido2: null,
+      cedula: null,
+      telefono: null,
+      puesto: null,
+      tipo_asociacion: null as string | null,
+    };
+  }
+
+  /**
+   * Actualiza los campos editables del perfil (email y teléfono).
+   * Si se cambia el email, se debe verificar la nueva cuenta.
+   */
+  async actualizarPerfil(
+    usuarioId: number,
+    dto: ActualizarPerfilDto,
+  ) {
+    const user = await this.userRepository.findOne({
+      where: { id: usuarioId },
+    });
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Sesión inválida');
+    }
+
+    // Actualizar teléfono en la tabla asociada (empleado o abonado)
+    if (dto.telefono !== undefined) {
+      const empleado = await this.empleadoRepository.findOne({
+        where: { usuario: { id: usuarioId } },
+      });
+      if (empleado) {
+        empleado.telefono = dto.telefono;
+        await this.empleadoRepository.save(empleado);
+      } else {
+        const abonado = await this.abonadoRepository.findOne({
+          where: { usuario: { id: usuarioId } },
+        });
+        if (abonado) {
+          abonado.telefono = dto.telefono;
+          await this.abonadoRepository.save(abonado);
+        }
+      }
+    }
+
+    // Actualizar email si se proporciona y es diferente
+    if (dto.email && dto.email !== user.email) {
+      const existe = await this.userRepository.findOne({
+        where: { email: dto.email },
+      });
+      if (existe) {
+        throw new BadRequestException('Ya existe una cuenta con ese correo');
+      }
+
+      user.email = dto.email;
+      await this.userRepository.save(user);
+    }
+
+    return this.obtenerPerfilCompleto(usuarioId);
+  }
+
+  /**
+   * Guarda la foto de perfil del usuario. Elimina la anterior si existe.
+   */
+  async subirFoto(
+    usuarioId: number,
+    file: Express.Multer.File,
+  ): Promise<{ foto_url: string }> {
+    const user = await this.userRepository.findOne({
+      where: { id: usuarioId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    // Eliminar foto anterior si existe
+    if (user.foto_url) {
+      const rutaAnterior = join(process.cwd(), user.foto_url);
+      try {
+        unlinkSync(rutaAnterior);
+      } catch {
+        // El archivo ya no existe o no se puede eliminar — ignorar
+      }
+    }
+
+    // Guardar la nueva ruta
+    user.foto_url = `/uploads/usuarios/${file.filename}`;
+    await this.userRepository.save(user);
+
+    return { foto_url: user.foto_url };
   }
 }
