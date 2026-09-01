@@ -15,6 +15,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { RolesService } from './roles.service';
 import { RolesController } from './roles.controller';
+import { UsersController } from './users.controller';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { MailService } from './mail.service';
@@ -44,8 +45,8 @@ import { POLITICA_LOGIN_THROTTLE } from './auth-throttle.config';
       }),
     }),
   ],
-  controllers: [AuthController, RolesController],
+  controllers: [AuthController, RolesController, UsersController],
   providers: [AuthService, RolesService, LocalStrategy, JwtStrategy, MailService],
   exports: [AuthService, RolesService, TypeOrmModule],
 })
-export class AuthModule {}
+export class AuthModule { }
