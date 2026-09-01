@@ -25,6 +25,10 @@ export class User {
   @Column({ default: true })
   isActive: boolean;
 
+  /** URL relativa de la foto de perfil (uploads/usuarios/...) */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  foto_url: string | null;
+
   @OneToMany(() => RefreshToken, (refreshToken) => refreshToken.usuario)
   refreshTokens: RefreshToken[];
 

@@ -11,6 +11,7 @@ import { AbonadosModule } from './modules/abonados/abonados.module';
 import { PublicacionesModule } from './modules/publicaciones/publicaciones.module';
 import { DocumentosModule } from './modules/documentos/documentos.module';
 import { EmpleadosModule } from './modules/empleados/empleados.module';
+import { ConfiguracionModule } from './modules/configuracion/configuracion.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { EmpleadosModule } from './modules/empleados/empleados.module';
     PublicacionesModule,
     DocumentosModule,
     EmpleadosModule,
+    ConfiguracionModule,
   ],
   controllers: [AppController],
   providers: [AppService],

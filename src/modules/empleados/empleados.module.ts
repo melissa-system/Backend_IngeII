@@ -1,14 +1,14 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Empleado } from './entities/empleado.entity';
+import { User } from '../auth/entities/user.entity';
+import { EmpleadosService } from './empleados.service';
+import { EmpleadosController } from './empleados.controller';
 
-// Módulo mínimo: por ahora solo registra la tabla (ver punto 6 de la
-// conversación con Meli — "empleados existe como tabla de datos
-// adicionales del personal", sin CRUD/UI todavía). Se exporta
-// TypeOrmModule para que otros módulos (por ejemplo averías, para el FK
-// fontanero_asignado_id) puedan inyectar su repositorio si lo necesitan.
 @Module({
-  imports: [TypeOrmModule.forFeature([Empleado])],
+  imports: [TypeOrmModule.forFeature([Empleado, User])],
+  controllers: [EmpleadosController],
+  providers: [EmpleadosService],
   exports: [TypeOrmModule],
 })
 export class EmpleadosModule {}

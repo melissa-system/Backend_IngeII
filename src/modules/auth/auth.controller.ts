@@ -2,15 +2,22 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Query,
   Req,
   Res,
   Body,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   UnauthorizedException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import { mkdirSync } from 'fs';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
@@ -23,6 +30,7 @@ import { SolicitarResetPasswordDto } from './dto/solicitar-reset-password.dto';
 import { ConfirmarResetPasswordDto } from './dto/confirmar-reset-password.dto';
 import { RegistroDto } from './dto/registro.dto';
 import { VerificarEmailDto } from './dto/verificar-email.dto';
+import { ActualizarPerfilDto } from './dto/actualizar-perfil.dto';
 import { LocalAuthGuard } from '../../common/guards/local-auth.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
@@ -159,16 +167,63 @@ export class AuthController {
   }
 
   // GET /auth/perfil
-  // Primera ruta protegida con JwtAuthGuard: valida el Bearer (jwt.strategy.ts),
-  // deja {id, role} en request.user y revalida contra la BD que el usuario
-  // siga activo antes de responder.
+  // Retorna el perfil completo del usuario: datos de la tabla usuarios
+  // más los datos del empleado o abonado asociado (nombre, cédula, etc.).
   @UseGuards(JwtAuthGuard)
   @Get('perfil')
-  async perfil(
-    @Req() req: Request,
-  ): Promise<{ id: number; email: string; role: string }> {
+  async perfil(@Req() req: Request) {
     const { id } = req.user as { id: number };
-    return this.authService.obtenerPerfil(id);
+    return this.authService.obtenerPerfilCompleto(id);
+  }
+
+  // PATCH /auth/perfil
+  // Actualiza los campos editables del perfil (email y teléfono).
+  @UseGuards(JwtAuthGuard)
+  @Patch('perfil')
+  async actualizarPerfil(
+    @Req() req: Request,
+    @Body() dto: ActualizarPerfilDto,
+  ) {
+    const { id } = req.user as { id: number };
+    return this.authService.actualizarPerfil(id, dto);
+  }
+
+  // PATCH /auth/foto
+  // Sube una foto de perfil (multipart/form-data, campo "foto").
+  // Guarda en uploads/usuarios/ y retorna la URL relativa.
+  @UseGuards(JwtAuthGuard)
+  @Patch('foto')
+  @UseInterceptors(
+    FileInterceptor('foto', {
+      storage: diskStorage({
+        destination: (_req, _file, cb) => {
+          const dir = join(process.cwd(), 'uploads', 'usuarios');
+          mkdirSync(dir, { recursive: true });
+          cb(null, dir);
+        },
+        filename: (_req, file, cb) => {
+          const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+          cb(null, `foto-${uniqueSuffix}${extname(safeName)}`);
+        },
+      }),
+      limits: { fileSize: 2 * 1024 * 1024 }, // 2 MB
+      fileFilter: (_req, file, cb) => {
+        const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        if (!allowed.includes(file.mimetype)) {
+          cb(new UnauthorizedException('Solo se permiten imágenes (JPG, PNG, GIF, WEBP)'), false);
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async subirFoto(
+    @Req() req: Request,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    const { id } = req.user as { id: number };
+    return this.authService.subirFoto(id, file);
   }
 
   // POST /auth/cambiar-password
