@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -36,12 +37,9 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
-  ) {}
+  ) { }
 
   // Devuelve el usuario solo si existe, está activo y la contraseña coincide.
-  // Un usuario "pendiente" (isActive: false, cuenta sin verificar) queda
-  // bloqueado por esta misma condición: no puede iniciar sesión hasta
-  // completar la activación por correo.
   async validateUser(email: string, password: string): Promise<User | null> {
     const user = await this.userRepository.findOne({ where: { email } });
 
@@ -61,12 +59,9 @@ export class AuthService {
   async login(
     user: User,
   ): Promise<{ accessToken: string; refreshToken: string }> {
-    // Access Token de corta duración con el payload que consumen los guards.
-    // (user.role es eager, así que ya viene cargado por validateUser()).
     const payload: JwtPayload = { sub: user.id, role: user.role.name };
     const accessToken = this.jwtService.sign(payload);
 
-    // Refresh Token opaco (aleatorio): viaja en cookie httpOnly y en BD va hasheado.
     const refreshToken = randomBytes(64).toString('hex');
     await this.guardarRefreshToken(refreshToken, user.id);
 
@@ -91,26 +86,16 @@ export class AuthService {
     );
   }
 
-  // SHA-256 en hexadecimal; también lo usará el endpoint /refresh para buscarlo.
   static hashRefreshToken(tokenPlano: string): string {
     return createHash('sha256').update(tokenPlano).digest('hex');
   }
 
-  // Valida el Refresh Token contra la BD y emite un nuevo par de tokens
-  // (rotación: cada refresh token solo puede usarse una vez). El mensaje de
-  // error es genérico para no revelar qué validación exacta falló.
-  //
-  // Las condiciones de vigencia se evalúan EN SQL (expires_at > NOW()):
-  // MySQL compara TIMESTAMP en tiempo absoluto, inmune al desfase de zona
-  // horaria que puede introducir la conversión fecha JS <-> driver.
   async refrescarSesion(
     tokenPlano: string,
   ): Promise<{ accessToken: string; refreshToken: string; user: User }> {
     const fila = await this.refreshTokenRepository
       .createQueryBuilder('rt')
       .leftJoinAndSelect('rt.usuario', 'u')
-      // Query builder no aplica el eager:true de la entidad automáticamente;
-      // hay que traer la relación a mano para tener u.role.name disponible.
       .leftJoinAndSelect('u.role', 'r')
       .where('rt.token_hash = :hash', {
         hash: AuthService.hashRefreshToken(tokenPlano),
@@ -123,8 +108,6 @@ export class AuthService {
       throw new UnauthorizedException('Sesión inválida');
     }
 
-    // Rotación: el token usado queda revocado y nace uno nuevo en su lugar.
-    // Un token filtrado pierde todo valor en cuanto se utiliza.
     await this.refreshTokenRepository.update(fila.id, {
       revoked_at: new Date(),
     });
@@ -143,9 +126,6 @@ export class AuthService {
     };
   }
 
-  // Datos del usuario autenticado para GET /auth/perfil. Revalida contra la BD:
-  // un usuario desactivado pierde el acceso aunque su Access Token no haya
-  // expirado todavía.
   async obtenerPerfil(
     usuarioId: number,
   ): Promise<{ id: number; email: string; role: string }> {
@@ -160,10 +140,6 @@ export class AuthService {
     return { id: user.id, email: user.email, role: user.role.name };
   }
 
-  // Cierra la sesión revocando el Refresh Token (logout). Revocación suave
-  // (revoked_at) para dejar rastro auditable y por consistencia con la
-  // rotación de /refresh. Es idempotente: revocar un token inexistente o ya
-  // revocado no produce error.
   async revocarSesion(tokenPlano: string): Promise<void> {
     await this.refreshTokenRepository.update(
       {
@@ -174,12 +150,6 @@ export class AuthService {
     );
   }
 
-  // Cambia la contraseña del usuario autenticado. Verifica la contraseña
-  // actual con la comparación segura de bcrypt (nunca comparamos texto
-  // plano), guarda la nueva hasheada con BCRYPT_COST y revoca TODOS los
-  // Refresh Tokens vigentes del usuario: cambiar contraseña invalida toda
-  // sesión activa (este dispositivo incluido) y obliga a iniciar sesión de
-  // nuevo con la contraseña nueva.
   async cambiarPassword(
     usuarioId: number,
     passwordActual: string,
@@ -204,13 +174,9 @@ export class AuthService {
       );
     }
 
-    // Las reglas de fortaleza viven en CambiarPasswordDto (class-validator);
-    // aquí solo confiamos en que ya pasaron y aplicamos el hash.
     user.password = await bcrypt.hash(nuevaPassword, BCRYPT_COST);
     await this.userRepository.save(user);
 
-    // Revocación masiva: mismo patrón suave de revocarSesion, pero filtrado
-    // por usuario para cubrir todas sus sesiones abiertas.
     await this.refreshTokenRepository.update(
       { usuario_id: usuarioId, revoked_at: IsNull() },
       { revoked_at: new Date() },
@@ -219,10 +185,6 @@ export class AuthService {
     return { mensaje: 'Contraseña actualizada. Inicia sesión nuevamente.' };
   }
 
-  // Genera y envía un token de recuperación de contraseña para el correo
-  // indicado. Nunca revela si el correo existe: siempre responde el mismo
-  // mensaje genérico, tanto si el usuario existe como si no, para no
-  // permitir enumerar cuentas registradas por la respuesta.
   async solicitarResetPassword(email: string): Promise<{ mensaje: string }> {
     const MENSAJE_GENERICO = {
       mensaje:
@@ -231,14 +193,10 @@ export class AuthService {
 
     const user = await this.userRepository.findOne({ where: { email } });
 
-    // No revelar existencia del correo: se sale aquí con el mismo mensaje,
-    // sin distinguir "no existe" de "sí existe pero algo falló después".
     if (!user || !user.isActive) {
       return MENSAJE_GENERICO;
     }
 
-    // Invalida cualquier token de recuperación previo sin usar: solo el
-    // último enlace enviado debe quedar vigente.
     await this.passwordResetTokenRepository.delete({
       usuario_id: user.id,
       used_at: IsNull(),
@@ -265,10 +223,6 @@ export class AuthService {
     try {
       await this.mailService.enviarCorreoResetPassword(user.email, url);
     } catch (error) {
-      // Fallo controlado: se registra para diagnóstico, pero no se revela
-      // el detalle al cliente (podría filtrar info de la infraestructura
-      // de correo). El mensaje SÍ puede ser distinto aquí porque el fallo
-      // es nuestro (SMTP caído), no depende de si el correo existe o no.
       console.error('Error al enviar correo de recuperación:', error);
       throw new InternalServerErrorException(
         'No se pudo enviar el correo de recuperación. Intenta más tarde.',
@@ -278,17 +232,10 @@ export class AuthService {
     return MENSAJE_GENERICO;
   }
 
-  // SHA-256 en hexadecimal; lo usa confirmarResetPassword para volver a
-  // calcular el hash del token recibido y compararlo.
   static hashResetToken(tokenPlano: string): string {
     return createHash('sha256').update(tokenPlano).digest('hex');
   }
 
-  // Confirma la recuperación de contraseña: valida el token contra la BD
-  // (existe, no usado, vigente), actualiza la contraseña hasheada y revoca
-  // TODAS las sesiones activas del usuario — igual que cambiarPassword, un
-  // reset de contraseña es ante todo una respuesta a una posible cuenta
-  // comprometida y debe cerrar cualquier sesión que haya podido quedar abierta.
   async confirmarResetPassword(
     tokenPlano: string,
     nuevaPassword: string,
@@ -317,7 +264,6 @@ export class AuthService {
       { revoked_at: new Date() },
     );
 
-    // Invalida el token de recuperación: de un solo uso.
     await this.passwordResetTokenRepository.update(fila.id, {
       used_at: new Date(),
     });
@@ -325,12 +271,6 @@ export class AuthService {
     return { mensaje: 'Contraseña actualizada. Inicia sesión nuevamente.' };
   }
 
-  // Registra un usuario nuevo en estado "pendiente" (isActive: false) y le
-  // envía un correo de bienvenida con el enlace de activación. A diferencia
-  // del reset de contraseña, un fallo en el envío del correo NO bloquea el
-  // registro: la cuenta ya quedó creada, solo se registra el error para
-  // diagnóstico (el reenvío del correo de bienvenida queda fuera del
-  // alcance de esta task).
   async registrar(
     email: string,
     password: string,
@@ -340,8 +280,6 @@ export class AuthService {
       throw new BadRequestException('Ya existe una cuenta con ese correo');
     }
 
-    // Antes lo cubría el default del enum (Role.ABONADO); ahora que role_id
-    // es una FK obligatoria, hay que asignar la fila explícitamente.
     const rolAbonado = await this.roleRepository.findOne({
       where: { name: Role.ABONADO },
     });
@@ -362,7 +300,7 @@ export class AuthService {
     const tokenPlano = randomBytes(32).toString('hex');
     const horas = Number(
       this.configService.get<string>('ACCOUNT_ACTIVATION_EXPIRES_HOURS') ??
-        24,
+      24,
     );
     const expiresAt = new Date(Date.now() + horas * 60 * 60 * 1000);
 
@@ -381,9 +319,6 @@ export class AuthService {
     try {
       await this.mailService.enviarCorreoBienvenida(user.email, url);
     } catch (error) {
-      // Fallo controlado y NO bloqueante: la cuenta ya existe, solo se
-      // registra el error. A diferencia del reset de contraseña, aquí no
-      // tiene sentido revertir el registro por un fallo de SMTP.
       console.error('Error al enviar correo de bienvenida:', error);
     }
 
@@ -393,17 +328,10 @@ export class AuthService {
     };
   }
 
-  // SHA-256 en hexadecimal; lo usa verificarEmail para volver a calcular el
-  // hash del token recibido y compararlo.
   static hashActivationToken(tokenPlano: string): string {
     return createHash('sha256').update(tokenPlano).digest('hex');
   }
 
-  // Valida el token de activación y pasa la cuenta de "pendiente" a
-  // "activa". Mismo patrón que refrescarSesion/confirmarResetPassword
-  // (vigencia evaluada en SQL, mensaje genérico). Un token ya usado deja de
-  // cumplir "used_at IS NULL", así que un segundo intento con el mismo
-  // enlace cae en el mismo error genérico sin activar la cuenta dos veces.
   async verificarEmail(tokenPlano: string): Promise<{ mensaje: string }> {
     const fila = await this.activationTokenRepository
       .createQueryBuilder('at')
@@ -428,6 +356,149 @@ export class AuthService {
 
     return {
       mensaje: 'Cuenta activada correctamente. Ya puedes iniciar sesión.',
+    };
+  }
+
+
+  async listarUsuarios(): Promise<
+    Array<{
+      id: number;
+      email: string;
+      role: string;
+      role_id: number;
+      isActive: boolean;
+      createdAt: Date;
+    }>
+  > {
+    const usuarios = await this.userRepository.find({
+      relations: { role: true },
+      order: { id: 'ASC' },
+    });
+
+    return usuarios.map((u) => ({
+      id: u.id,
+      email: u.email,
+      role: u.role?.name ?? 'Sin rol',
+      role_id: u.role?.id,
+      isActive: u.isActive,
+      createdAt: u.createdAt,
+    }));
+  }
+
+  // Activar o Inhabilitar usuario y revocar sesiones activas si se desactiva
+  async cambiarEstadoUsuario(
+    usuarioId: number,
+    isActive: boolean,
+  ): Promise<{
+    id: number;
+    email: string;
+    role: string;
+    role_id: number;
+    isActive: boolean;
+    createdAt: Date;
+  }> {
+    const user = await this.userRepository.findOne({
+      where: { id: usuarioId },
+      relations: { role: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    user.isActive = isActive;
+    await this.userRepository.save(user);
+
+    if (!isActive) {
+      await this.refreshTokenRepository.update(
+        { usuario_id: usuarioId, revoked_at: IsNull() },
+        { revoked_at: new Date() },
+      );
+    }
+
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role?.name ?? 'Sin rol',
+      role_id: user.role?.id,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+    };
+  }
+
+  // Cambiar el rol asignado a un usuario
+  async cambiarRolUsuario(
+    usuarioId: number,
+    roleId: number,
+  ): Promise<{
+    id: number;
+    email: string;
+    role: string;
+    role_id: number;
+    isActive: boolean;
+    createdAt: Date;
+  }> {
+    const user = await this.userRepository.findOne({
+      where: { id: usuarioId },
+      relations: { role: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    const nuevoRol = await this.roleRepository.findOne({
+      where: { id: roleId },
+    });
+
+    if (!nuevoRol) {
+      throw new NotFoundException('El rol especificado no existe');
+    }
+
+    user.role = nuevoRol;
+    await this.userRepository.save(user);
+
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role?.name ?? 'Sin rol',
+      role_id: user.role?.id,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+    };
+  }
+
+  async crearUsuarioPorAdmin(
+    email: string,
+    passwordPlano: string,
+    roleId: number,
+  ): Promise<{ id: number; email: string; role: string; isActive: boolean }> {
+    const existe = await this.userRepository.findOne({ where: { email } });
+    if (existe) {
+      throw new BadRequestException('Ya existe una cuenta con ese correo electrónico');
+    }
+
+    const rol = await this.roleRepository.findOne({ where: { id: roleId } });
+    if (!rol) {
+      throw new BadRequestException('El rol seleccionado no existe en el sistema');
+    }
+
+    const passwordHash = await bcrypt.hash(passwordPlano, BCRYPT_COST);
+
+    const nuevoUsuario = this.userRepository.create({
+      email,
+      password: passwordHash,
+      role: rol,
+      isActive: true, // Creado por admin nace activo directamente
+    });
+
+    const guardado = await this.userRepository.save(nuevoUsuario);
+
+    return {
+      id: guardado.id,
+      email: guardado.email,
+      role: guardado.role.name,
+      isActive: guardado.isActive,
     };
   }
 }
