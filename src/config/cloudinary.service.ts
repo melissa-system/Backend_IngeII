@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { v2 as CloudinaryType, UploadApiResponse } from 'cloudinary';
 import * as streamifier from 'streamifier';
+import { extname } from 'path';
 import { CLOUDINARY } from './cloudinary.provider';
 
 // Resultado de una subida: es lo único que los módulos necesitan guardar en
@@ -57,6 +58,19 @@ export class CloudinaryService {
     const esImagen = archivo.mimetype.startsWith('image/');
     const resourceType: 'image' | 'raw' = esImagen ? 'image' : 'raw';
 
+    // IMPORTANTE (archivos 'raw'): Cloudinary NO agrega la extensión al
+    // public_id de un archivo raw. Si no se incluye a mano, la URL termina
+    // sin extensión (.../ASADA/documentos/a1b2c3) y al descargarlo el sistema
+    // operativo no sabe con qué abrirlo: pregunta por una aplicación y, al
+    // abrirlo con un editor de texto, muestra el código fuente crudo del PDF
+    // en vez del documento. Por eso el public_id se arma con el nombre
+    // original + un sufijo único + la extensión.
+    //
+    // Las imágenes no necesitan esto: Cloudinary les asigna el formato solo.
+    const publicId = esImagen
+      ? undefined
+      : this.construirPublicId(archivo.originalname);
+
     try {
       const resultado = await new Promise<UploadApiResponse>(
         (resolve, reject) => {
@@ -64,6 +78,7 @@ export class CloudinaryService {
             {
               folder: carpeta,
               resource_type: resourceType,
+              ...(publicId ? { public_id: publicId } : {}),
             },
             (error, result) => {
               if (error) return reject(error);
@@ -93,7 +108,7 @@ export class CloudinaryService {
   }
 
   // Elimina un archivo de Cloudinary. Se usa al reemplazar un archivo por una
-  // versión nueva (ver Task B4), para no acumular archivos huérfanos.
+  // versión nueva, y como rollback si falla el guardado en base de datos.
   //
   // Es tolerante a fallos a propósito: si el borrado falla (el archivo ya no
   // existe, error de red...), se registra pero NO se lanza excepción. Quien
@@ -117,6 +132,24 @@ export class CloudinaryService {
     }
   }
 
+  // Arma un public_id legible y único que CONSERVA la extensión original.
+  // Ej: "Acta de asamblea.pdf" -> "Acta_de_asamblea_1788632472540.pdf"
+  //
+  // El nombre se limpia de caracteres que Cloudinary no admite en un
+  // public_id (espacios, acentos, símbolos), y se le agrega la marca de
+  // tiempo para que dos archivos con el mismo nombre no se sobrescriban.
+  private construirPublicId(nombreOriginal: string): string {
+    const extension = extname(nombreOriginal); // incluye el punto: '.pdf'
+    const base = nombreOriginal
+      .slice(0, nombreOriginal.length - extension.length)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // quita acentos
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(0, 80); // evita public_ids desmedidos
+
+    return `${base || 'archivo'}_${Date.now()}${extension}`;
+  }
+
   // Validaciones comunes a cualquier subida del sistema.
   private validarArchivo(archivo: Express.Multer.File): void {
     if (!archivo) {
@@ -124,7 +157,7 @@ export class CloudinaryService {
     }
 
     // Con memoryStorage el archivo llega en .buffer; si no está, es señal de
-    // que el módulo que llama todavía usa diskStorage (ver Task B3).
+    // que el módulo que llama todavía usa diskStorage.
     if (!archivo.buffer) {
       throw new BadRequestException(
         'El archivo no se recibió correctamente en memoria',
