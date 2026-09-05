@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   ParseIntPipe,
@@ -14,9 +15,7 @@ import {
 } from '@nestjs/common';
 import type { RequestUser } from '../auth/strategies/jwt.strategy';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import { mkdirSync } from 'fs';
+import { memoryStorage } from 'multer';
 import { DocumentosService } from './documentos.service';
 import { CreateDocumentoDto } from './dto/create-documento.dto';
 import { UpdateDocumentoDto } from './dto/update-documento.dto';
@@ -40,15 +39,11 @@ const ALLOWED_MIME_TYPES = [
   'image/png',
 ];
 
-// --- Estrategia de almacenamiento físico de los archivos ---
-// Igual que los adjuntos de solicitudes de paja de agua: los archivos se
-// guardan en disco, dentro de uploads/documentos/, con un nombre único
-// (timestamp + sufijo aleatorio) para evitar colisiones y no depender del
-// nombre original que suba la persona usuaria. Ese nombre generado es lo que
-// se guarda en Documento.ubicacion, y main.ts expone la carpeta uploads/
-// completa como archivos estáticos, así que el archivo queda accesible en
-// /uploads/documentos/<nombre-generado>. No se usa almacenamiento en la
-// base de datos (BLOB) para no inflar las consultas ni los backups de MySQL.
+// --- Estrategia de almacenamiento de los archivos ---
+// Los archivos se reciben en MEMORIA (memoryStorage) y el service los sube a
+// Cloudinary, que devuelve la URL pública y el public_id. Ya no se escribe
+// nada en el disco del servidor: así los archivos sobreviven a reinicios y
+// redespliegues, y no dependen del almacenamiento local del hosting.
 @Controller('documentos')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class DocumentosController {
@@ -58,18 +53,7 @@ export class DocumentosController {
   @Roles(Role.ADMIN)
   @UseInterceptors(
     FileInterceptor('archivo', {
-      storage: diskStorage({
-        destination: (_req, _file, cb) => {
-          const dir = join(process.cwd(), 'uploads', 'documentos');
-          mkdirSync(dir, { recursive: true });
-          cb(null, dir);
-        },
-        filename: (_req, file, cb) => {
-          const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-          const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-          cb(null, `${uniqueSuffix}${extname(safeName)}`);
-        },
-      }),
+      storage: memoryStorage(),
       limits: { fileSize: MAX_FILE_SIZE },
       fileFilter: (_req, file, cb) => {
         if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
@@ -110,5 +94,14 @@ export class DocumentosController {
     @Body() updateDocumentoDto: UpdateDocumentoDto,
   ) {
     return this.documentosService.update(id, updateDocumentoDto);
+  }
+  // DELETE /documentos/:id
+  // Eliminación DEFINITIVA: borra el registro y el archivo de Cloudinary.
+  // Para dar de baja un documento conservando el historial, usar en su lugar
+  // PATCH /documentos/:id con estado 'Inhabilitado'.
+  @Delete(':id')
+  @Roles(Role.ADMIN)
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.documentosService.remove(id);
   }
 }

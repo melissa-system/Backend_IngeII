@@ -9,9 +9,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import { mkdirSync } from 'fs';
+import { memoryStorage } from 'multer';
 import { SolicitudesService } from './solicitudes.service';
 import { CreateSolicitudPajaAguaDto } from './dto/create-solicitud-paja-agua.dto';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -37,6 +35,9 @@ export class SolicitudesController {
 
   // Ruta pública: formulario web de solicitud de paja de agua. Sin guards:
   // JwtAuthGuard no respeta @Public(), así que aquí no se aplica ninguno.
+  //
+  // Los archivos se reciben en MEMORIA (memoryStorage) y el service los sube
+  // a Cloudinary; ya no se escribe nada en el disco del servidor.
   @Post()
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -45,18 +46,7 @@ export class SolicitudesController {
         { name: 'cartaSolicitud', maxCount: 1 },
       ],
       {
-        storage: diskStorage({
-          destination: (_req, _file, cb) => {
-            const dir = join(process.cwd(), 'uploads', 'solicitudes');
-            mkdirSync(dir, { recursive: true });
-            cb(null, dir);
-          },
-          filename: (_req, file, cb) => {
-            const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-            const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-            cb(null, `${uniqueSuffix}${extname(safeName)}`);
-          },
-        }),
+        storage: memoryStorage(),
         limits: { fileSize: MAX_FILE_SIZE },
         fileFilter: (_req, file, cb) => {
           if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
