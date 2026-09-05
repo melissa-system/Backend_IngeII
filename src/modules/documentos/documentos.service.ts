@@ -14,6 +14,10 @@ import {
   EstadoDocumento,
 } from './enums/documento.enums';
 import { User } from '../auth/entities/user.entity';
+import { CloudinaryService } from '../../config/cloudinary.service';
+
+// Carpeta dentro de la cuenta de Cloudinary donde viven estos documentos
+const CARPETA_CLOUDINARY = 'ASADA/documentos';
 
 @Injectable()
 export class DocumentosService {
@@ -22,6 +26,7 @@ export class DocumentosService {
     private readonly documentoRepository: Repository<Documento>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   async create(
@@ -36,8 +41,7 @@ export class DocumentosService {
 
     // 2. El tipo es obligatorio y debe pertenecer al catálogo cerrado de
     // TipoDocumento (actas, informes, mediciones en el acueducto,
-    // comunicados, otros). Esta es la validación pedida: "verificar que cada
-    // documento tenga un tipo válido del catálogo antes de guardarse".
+    // comunicados, otros).
     if (
       !createDocumentoDto.tipo ||
       !Object.values(TipoDocumento).includes(
@@ -62,8 +66,7 @@ export class DocumentosService {
       );
     }
 
-    // 4. Debe venir un archivo adjunto (ver estrategia de almacenamiento en
-    // documentos.controller.ts: se guarda en disco dentro de uploads/documentos/)
+    // 4. Debe venir un archivo adjunto
     if (!archivo) {
       throw new BadRequestException('Debes adjuntar el archivo del documento');
     }
@@ -72,6 +75,10 @@ export class DocumentosService {
     // tipo, esta carga se trata como una nueva versión del mismo documento:
     // la versión anterior pasa a 'Inhabilitado' y la nueva queda vigente
     // con version = anterior.version + 1.
+    //
+    // Nota: la versión anterior conserva su archivo en Cloudinary a
+    // propósito — el historial de versiones debe seguir siendo consultable.
+    // Por eso aquí NO se llama a eliminarArchivo.
     const anterior = await this.documentoRepository.findOne({
       where: {
         nombre: createDocumentoDto.nombre,
@@ -93,18 +100,25 @@ export class DocumentosService {
       ? await this.userRepository.findOneBy({ id: usuarioId })
       : null;
 
-    // 7. Crear el registro nuevo, vigente por defecto
+    // 7. Subir el archivo a Cloudinary
+    const archivoSubido = await this.cloudinaryService.subirArchivo(
+      archivo,
+      CARPETA_CLOUDINARY,
+    );
+
+    // 8. Crear el registro nuevo, vigente por defecto
     const nuevoDocumento = this.documentoRepository.create({
       nombre: createDocumentoDto.nombre,
       tipo: createDocumentoDto.tipo as TipoDocumento,
       version,
-      ubicacion: archivo.filename,
+      ubicacion: archivoSubido.url,
+      public_id: archivoSubido.publicId,
       visibilidad: visibilidad as VisibilidadDocumento,
       estado: EstadoDocumento.VIGENTE,
       subido_por: subidoPor,
     });
 
-    // 8. Guardar en MySQL
+    // 9. Guardar en MySQL
     return await this.documentoRepository.save(nuevoDocumento);
   }
 

@@ -23,8 +23,7 @@ import { Role } from '../../common/enums/roles.enum';
 import { Empleado } from '../empleados/entities/empleado.entity';
 import { Abonado } from '../abonados/entities/abonado.entity';
 import { ActualizarPerfilDto } from './dto/actualizar-perfil.dto';
-import { unlinkSync } from 'fs';
-import { join } from 'path';
+import { CloudinaryService } from '../../config/cloudinary.service';
 
 @Injectable()
 export class AuthService {
@@ -46,6 +45,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
+    private readonly cloudinaryService: CloudinaryService,
   ) { }
 
   // Devuelve el usuario solo si existe, está activo y la contraseña coincide.
@@ -678,7 +678,9 @@ export class AuthService {
   }
 
   /**
-   * Guarda la foto de perfil del usuario. Elimina la anterior si existe.
+   * Guarda la foto de perfil del usuario en Cloudinary.
+   * Elimina la anterior de la nube si existe, para no acumular archivos
+   * huérfanos (la foto vieja ya no se necesita: no hay historial de fotos).
    */
   async subirFoto(
     usuarioId: number,
@@ -687,25 +689,31 @@ export class AuthService {
     const user = await this.userRepository.findOne({
       where: { id: usuarioId },
     });
-
+ 
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
     }
-
-    // Eliminar foto anterior si existe
-    if (user.foto_url) {
-      const rutaAnterior = join(process.cwd(), user.foto_url);
-      try {
-        unlinkSync(rutaAnterior);
-      } catch {
-        // El archivo ya no existe o no se puede eliminar — ignorar
-      }
-    }
-
-    // Guardar la nueva ruta
-    user.foto_url = `/uploads/usuarios/${file.filename}`;
+ 
+    // Guardamos el public_id anterior antes de sobrescribirlo, para poder
+    // borrar esa foto de Cloudinary una vez que la nueva se haya subido bien.
+    const publicIdAnterior = user.foto_public_id;
+ 
+    // Subir la nueva foto
+    const fotoSubida = await this.cloudinaryService.subirArchivo(
+      file,
+      'ASADA/usuarios',
+    );
+ 
+    user.foto_url = fotoSubida.url;
+    user.foto_public_id = fotoSubida.publicId;
     await this.userRepository.save(user);
-
+ 
+    // Recién ahora se borra la anterior: si algo falla arriba, el usuario
+    // conserva su foto vieja en vez de quedarse sin ninguna.
+    if (publicIdAnterior) {
+      await this.cloudinaryService.eliminarArchivo(publicIdAnterior, true);
+    }
+ 
     return { foto_url: user.foto_url };
   }
 }

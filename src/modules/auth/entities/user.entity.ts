@@ -29,6 +29,12 @@ export class User {
   @Column({ type: 'varchar', length: 500, nullable: true })
   foto_url: string | null;
 
+    // Identificador del archivo en Cloudinary, necesario para poder eliminar
+  // la foto anterior al reemplazarla. NULL en usuarios cuya foto todavía
+  // vive en disco (uploads/usuarios/), anteriores a la migración.
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  foto_public_id: string | null;
+
   @OneToMany(() => RefreshToken, (refreshToken) => refreshToken.usuario)
   refreshTokens: RefreshToken[];
 

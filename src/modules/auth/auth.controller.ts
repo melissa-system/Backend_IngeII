@@ -15,9 +15,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import { mkdirSync } from 'fs';
+import { memoryStorage } from 'multer';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
@@ -195,18 +193,7 @@ export class AuthController {
   @Patch('foto')
   @UseInterceptors(
     FileInterceptor('foto', {
-      storage: diskStorage({
-        destination: (_req, _file, cb) => {
-          const dir = join(process.cwd(), 'uploads', 'usuarios');
-          mkdirSync(dir, { recursive: true });
-          cb(null, dir);
-        },
-        filename: (_req, file, cb) => {
-          const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-          const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-          cb(null, `foto-${uniqueSuffix}${extname(safeName)}`);
-        },
-      }),
+      storage: memoryStorage(),
       limits: { fileSize: 2 * 1024 * 1024 }, // 2 MB
       fileFilter: (_req, file, cb) => {
         const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];

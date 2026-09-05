@@ -22,6 +22,7 @@ import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { MailService } from './mail.service';
 import { POLITICA_LOGIN_THROTTLE } from './auth-throttle.config';
+import { CloudinaryModule } from '../../config/cloudinary.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { POLITICA_LOGIN_THROTTLE } from './auth-throttle.config';
         },
       }),
     }),
+    CloudinaryModule,
   ],
   controllers: [AuthController, RolesController, UsersController],
   providers: [AuthService, RolesService, LocalStrategy, JwtStrategy, MailService],

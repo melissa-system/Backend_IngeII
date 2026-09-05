@@ -59,12 +59,24 @@ export class SolicitudPajaAgua {
   @Column({ type: 'text', nullable: true })
   observaciones: string | null;
 
-  // Ruta del archivo adjunto guardado en el servidor (uploads/solicitudes)
-  @Column({ type: 'varchar', nullable: true })
+  // URL del archivo en Cloudinary (secure_url). Antes de la migración a la
+  // nube estas columnas guardaban el nombre del archivo en uploads/solicitudes;
+  // los registros viejos conservan ese valor y siguen sirviéndose desde disco
+  // (ver nota de compatibilidad en el README de la Task B3).
+  @Column({ type: 'varchar', length: 500, nullable: true })
   permisos_municipales_path: string | null;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'varchar', length: 500, nullable: true })
   carta_solicitud_path: string | null;
+
+  // Identificador del archivo dentro de Cloudinary. Se necesita para poder
+  // eliminarlo al reemplazarlo (Task B4). NULL en los registros anteriores
+  // a la migración, que viven en disco y no tienen public_id.
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  permisos_municipales_public_id: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  carta_solicitud_public_id: string | null;
 
   @Column({
     type: 'enum',
