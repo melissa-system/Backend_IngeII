@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   ParseIntPipe,
@@ -93,5 +94,14 @@ export class DocumentosController {
     @Body() updateDocumentoDto: UpdateDocumentoDto,
   ) {
     return this.documentosService.update(id, updateDocumentoDto);
+  }
+  // DELETE /documentos/:id
+  // Eliminación DEFINITIVA: borra el registro y el archivo de Cloudinary.
+  // Para dar de baja un documento conservando el historial, usar en su lugar
+  // PATCH /documentos/:id con estado 'Inhabilitado'.
+  @Delete(':id')
+  @Roles(Role.ADMIN)
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.documentosService.remove(id);
   }
 }
