@@ -388,12 +388,12 @@ export class AuthService {
       role_id: number;
       isActive: boolean;
       createdAt: Date;
-      vinculo: {
+      vinculos: Array<{
         tipo: 'Abonado' | 'Empleado';
         id: number;
         nombre: string;
         cedula: string;
-      } | null;
+      }>;
     }>
   > {
     const usuarios = await this.userRepository.find({
@@ -420,11 +420,32 @@ export class AuthService {
     return usuarios.map((u) => {
       const abonado = abonadoPorUsuarioId.get(u.id);
       const empleado = empleadoPorUsuarioId.get(u.id);
-      const vinculo = abonado
-        ? { tipo: 'Abonado' as const, id: abonado.id, nombre: abonado.nombre, cedula: abonado.cedula }
-        : empleado
-          ? { tipo: 'Empleado' as const, id: empleado.id, nombre: empleado.nombre, cedula: empleado.cedula }
-          : null;
+
+      // Una misma cuenta puede estar ligada a un Empleado Y a un Abonado a
+      // la vez (misma persona en ambos roles), así que se listan TODOS los
+      // vínculos en lugar de elegir el primero que aparezca.
+      const vinculos: Array<{
+        tipo: 'Abonado' | 'Empleado';
+        id: number;
+        nombre: string;
+        cedula: string;
+      }> = [];
+      if (abonado) {
+        vinculos.push({
+          tipo: 'Abonado',
+          id: abonado.id,
+          nombre: abonado.nombre,
+          cedula: abonado.cedula,
+        });
+      }
+      if (empleado) {
+        vinculos.push({
+          tipo: 'Empleado',
+          id: empleado.id,
+          nombre: empleado.nombre,
+          cedula: empleado.cedula,
+        });
+      }
 
       return {
         id: u.id,
@@ -433,7 +454,7 @@ export class AuthService {
         role_id: u.role?.id,
         isActive: u.isActive,
         createdAt: u.createdAt,
-        vinculo,
+        vinculos,
       };
     });
   }
@@ -672,6 +693,89 @@ export class AuthService {
       // falle; se puede reenviar el acceso después desde Usuarios.
       console.error(
         `Error al enviar el correo de acceso al abonado ${abonado.id}:`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Crear la cuenta de acceso de un Empleado vinculado recién, con el rol
+   * que corresponda a su puesto (ver rolParaPuesto en EmpleadosService).
+   * Replica el mecanismo de crearCuentaParaAbonado: si ya existe un usuario
+   * con ese correo solo lo enlaza, y si no existe crea una cuenta activa con
+   * contraseña aleatoria (nadie la usa) y envía un correo de "primer acceso"
+   * que reutiliza el flujo de /restablecer-password.
+   */
+  async crearCuentaParaEmpleado(
+    empleado: Empleado,
+    rol: Role,
+  ): Promise<void> {
+    const existente = await this.userRepository.findOne({
+      where: { email: empleado.correo },
+    });
+
+    if (existente) {
+      empleado.usuario = existente;
+      await this.empleadoRepository.save(empleado);
+      return;
+    }
+
+    const rolEntity = await this.roleRepository.findOne({
+      where: { name: rol },
+    });
+    if (!rolEntity) {
+      // No debería pasar en un ambiente sembrado ("npm run seed:roles"),
+      // pero si pasa no debe tumbar la vinculación del empleado — solo se
+      // registra el error y la cuenta se crea después a mano desde Usuarios.
+      console.error(
+        `No existe el rol '${rol}' en la tabla roles: no se pudo crear la cuenta de acceso del empleado ${empleado.id}.`,
+      );
+      return;
+    }
+
+    // Contraseña aleatoria que nadie llega a usar: la persona define la
+    // suya con el enlace del correo antes de poder iniciar sesión.
+    const passwordAleatoria = randomBytes(32).toString('hex');
+    const nuevoUsuario = this.userRepository.create({
+      email: empleado.correo,
+      password: await bcrypt.hash(passwordAleatoria, BCRYPT_COST),
+      role: rolEntity,
+      isActive: true,
+    });
+    const usuarioGuardado = await this.userRepository.save(nuevoUsuario);
+
+    empleado.usuario = usuarioGuardado;
+    await this.empleadoRepository.save(empleado);
+
+    const tokenPlano = randomBytes(32).toString('hex');
+    const horas = Number(
+      this.configService.get<string>('ACCOUNT_ACTIVATION_EXPIRES_HOURS') ??
+        24,
+    );
+    const expiresAt = new Date(Date.now() + horas * 60 * 60 * 1000);
+
+    await this.passwordResetTokenRepository.save(
+      this.passwordResetTokenRepository.create({
+        token_hash: AuthService.hashResetToken(tokenPlano),
+        usuario_id: usuarioGuardado.id,
+        expires_at: expiresAt,
+      }),
+    );
+
+    const url = `${this.configService.get<string>(
+      'FRONTEND_URL',
+    )}/restablecer-password?token=${tokenPlano}`;
+
+    try {
+      await this.mailService.enviarCorreoAccesoAbonado(
+        usuarioGuardado.email,
+        url,
+      );
+    } catch (error) {
+      // La cuenta y el vínculo ya quedaron guardados aunque el correo
+      // falle; se puede reenviar el acceso después desde Usuarios.
+      console.error(
+        `Error al enviar el correo de acceso al empleado ${empleado.id}:`,
         error,
       );
     }

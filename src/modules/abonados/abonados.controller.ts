@@ -72,4 +72,13 @@ export class AbonadosController {
   ) {
     return this.abonadosService.cambiarEstado(id, dto.estado, req.user?.id);
   }
+
+  // Vincula (o crea) la cuenta de acceso del abonado por su correo. Si el
+  // correo ya tiene usuario, solo enlaza; si no, crea la cuenta y manda el
+  // correo de "define tu contraseña".
+  @Post(':id/vincular-cuenta')
+  @Roles(Role.ADMIN)
+  vincularCuenta(@Param('id', ParseIntPipe) id: number) {
+    return this.abonadosService.vincularCuenta(id);
+  }
 }

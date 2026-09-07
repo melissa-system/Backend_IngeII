@@ -8,6 +8,8 @@ import { Repository } from 'typeorm';
 import { Empleado } from './entities/empleado.entity';
 import { User } from '../auth/entities/user.entity';
 import { Abonado } from '../abonados/entities/abonado.entity';
+import { AuthService } from '../auth/auth.service';
+import { Role } from '../../common/enums/roles.enum';
 
 export interface EmpleadoPlano {
   id: number;
@@ -19,6 +21,7 @@ export interface EmpleadoPlano {
   estado: string;
   fecha_registro: Date;
   usuario_id: number | null;
+  usuario_email: string | null;
   email: string | null;
 }
 
@@ -31,6 +34,7 @@ export class EmpleadosService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Abonado)
     private readonly abonadoRepository: Repository<Abonado>,
+    private readonly authService: AuthService,
   ) {}
 
   // La cédula se trata como única en todo el sistema (Empleados + Abonados),
@@ -64,6 +68,7 @@ export class EmpleadosService {
       estado: emp.estado,
       fecha_registro: emp.fecha_registro,
       usuario_id: emp.usuario?.id ?? null,
+      usuario_email: emp.usuario?.email ?? null,
       email: emp.correo ?? emp.usuario?.email ?? null,
     };
   }
@@ -281,6 +286,74 @@ export class EmpleadosService {
     empleado.estado = estado;
     const guardado = await this.empleadoRepository.save(empleado);
     return this.aPlano(guardado);
+  }
+
+  // El rol de la cuenta de acceso que se crea para un empleado se deriva
+  // de su puesto; si el puesto no está mapeado no se crea la cuenta (mejor
+  // que inventar un rol incorrecto) y se avisa al administrador.
+  private rolParaPuesto(puesto: string): Role {
+    switch (puesto) {
+      case 'Junta Directiva':
+        return Role.SUPER_ADMIN;
+      case 'Administrador':
+        return Role.ADMIN;
+      case 'Fontanero':
+        return Role.FONTANERO;
+      case 'Abonado':
+        return Role.ABONADO;
+      default:
+        throw new BadRequestException(
+          `No se puede crear la cuenta de acceso: no hay un rol definido para el puesto "${puesto}".`,
+        );
+    }
+  }
+
+  // Vincula (o crea si no existe) la cuenta de acceso del empleado usando
+  // su correo. La cuenta se crea con el rol que corresponda a su puesto.
+  async vincularCuenta(id: number): Promise<{
+    mensaje: string;
+    empleado: EmpleadoPlano;
+  }> {
+    const empleado = await this.empleadoRepository.findOne({
+      where: { id },
+      relations: { usuario: true },
+    });
+    if (!empleado) {
+      throw new NotFoundException(`No se encontró el empleado con id ${id}`);
+    }
+
+    if (empleado.usuario) {
+      throw new BadRequestException(
+        `El empleado ${empleado.nombre} ya tiene una cuenta de acceso vinculada (${empleado.usuario.email}).`,
+      );
+    }
+
+    const correo = empleado.correo?.trim().toLowerCase();
+    if (!correo) {
+      throw new BadRequestException(
+        `El empleado ${empleado.nombre} no tiene correo guardado. Primero guarda el correo en el formulario y vuelve a intentar.`,
+      );
+    }
+
+    const yaVinculado = await this.empleadoRepository.findOne({
+      where: { usuario: { email: correo } },
+    });
+    if (yaVinculado && yaVinculado.id !== id) {
+      throw new BadRequestException(
+        `El correo ${correo} ya está vinculado a otro empleado (${yaVinculado.nombre}).`,
+      );
+    }
+
+    await this.authService.crearCuentaParaEmpleado(
+      empleado,
+      this.rolParaPuesto(empleado.puesto),
+    );
+
+    const actualizado = await this.obtenerPorId(id);
+    return {
+      mensaje: `Cuenta de acceso vinculada al empleado ${actualizado.nombre}.`,
+      empleado: actualizado,
+    };
   }
 
   async listarUsuarios(): Promise<Array<{ id: number; email: string }>> {

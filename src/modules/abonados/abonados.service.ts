@@ -30,6 +30,7 @@ export interface AbonadoPlano {
   estado: string;
   fecha_registro: Date;
   usuario_id: number | null;
+  usuario_email: string | null;
   // Solo física
   apellido1: string | null;
   apellido2: string | null;
@@ -68,6 +69,7 @@ export class AbonadosService {
       estado: abonado.estado,
       fecha_registro: abonado.fecha_registro,
       usuario_id: abonado.usuario?.id ?? null,
+      usuario_email: abonado.usuario?.email ?? null,
       apellido1: abonado.fisico?.apellido1 ?? null,
       apellido2: abonado.fisico?.apellido2 ?? null,
       numero_plano_catastrado: abonado.fisico?.numero_plano_catastrado ?? null,
@@ -276,6 +278,48 @@ export class AbonadosService {
     }
 
     return this.aPlano(await this.cargarConDetalle(guardado.id));
+  }
+
+  // Vincula (o crea) la cuenta de acceso del abonado usando SU CORREO como
+  // llave: si ya existe un usuario con ese correo solo enlaza (abonados.
+  // usuario_id -> usuarios.id); si no existe, crea la cuenta con rol Abonado
+  // y le envía un correo para que defina su contraseña. Reutiliza el mismo
+  // flujo del alta (AuthService.crearCuentaParaAbonado).
+  async vincularCuenta(id: number): Promise<{
+    mensaje: string;
+    abonado: AbonadoPlano;
+  }> {
+    const abonado = await this.cargarConDetalle(id);
+
+    if (abonado.usuario) {
+      throw new BadRequestException(
+        `El abonado ${abonado.numero_abonado} ya tiene una cuenta de acceso vinculada.`,
+      );
+    }
+
+    const yaExistia =
+      (await this.userRepository.findOneBy({ email: abonado.correo })) !== null;
+
+    try {
+      await this.authService.crearCuentaParaAbonado(abonado);
+    } catch (error) {
+      // Mismo patrón que el alta: la vinculación quedó registrada por dentro
+      // si el paso intermedio que falló fue el correo; si falló antes, el
+      // abonado quedó igual y se puede reintentar.
+      console.error(
+        `No se pudo vincular la cuenta de acceso del abonado ${abonado.id}:`,
+        error,
+      );
+    }
+
+    const vinculado = await this.cargarConDetalle(id);
+    const mensaje = vinculado.usuario
+      ? yaExistia
+        ? `Cuenta de acceso vinculada al abonado ${vinculado.numero_abonado}.`
+        : `Cuenta de acceso creada para el abonado ${vinculado.numero_abonado}; se le envió un correo para definir su contraseña.`
+      : `No se pudo vincular la cuenta de acceso del abonado ${vinculado.numero_abonado}. Reintentalo más tarde.`;
+
+    return { mensaje, abonado: this.aPlano(vinculado) };
   }
 
   private async cargarConDetalle(id: number): Promise<Abonado> {
