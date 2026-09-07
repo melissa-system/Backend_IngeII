@@ -85,4 +85,10 @@ export class EmpleadosController {
   ) {
     return this.empleadosService.cambiarEstado(id, estado);
   }
+
+  @Post(':id/vincular-cuenta')
+  @Roles(Role.ADMIN)
+  vincularCuenta(@Param('id', ParseIntPipe) id: number) {
+    return this.empleadosService.vincularCuenta(id);
+  }
 }

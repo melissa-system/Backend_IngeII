@@ -82,4 +82,42 @@ export class MailService {
       `,
     });
   }
+
+  // Notificación del resultado de una solicitud gestionada en el dashboard
+  // (hoy: cambio de domicilio): informa si fue aprobada o rechazada y, en
+  // caso de rechazo, incluye el motivo indicado por el administrador.
+  async enviarCorreoResultadoSolicitud(
+    destinatario: string,
+    datos: {
+      tipo: string;
+      codigo: string;
+      estadoResultado: 'aprobado' | 'rechazado';
+      motivo?: string | null;
+    },
+  ): Promise<void> {
+    const esAprobada = datos.estadoResultado === 'aprobado';
+    await this.transporter.sendMail({
+      from:
+        this.configService.get<string>('EMAIL_FROM') ??
+        'no-reply@asada.local',
+      to: destinatario,
+      subject: esAprobada
+        ? `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} aprobada`
+        : `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} rechazada`,
+      html: `
+        <p><strong>ASADA Pueblo Nuevo</strong></p>
+        <p>Tu solicitud de <strong>${datos.tipo}</strong> con código <strong>${datos.codigo}</strong> fue ${
+          esAprobada ? 'aprobada' : 'rechazada'
+        }.</p>
+        ${
+          esAprobada
+            ? '<p>Ya puedes ver los cambios actualizados en tu perfil de abonado.</p>'
+            : datos.motivo
+              ? `<p>Motivo del rechazo: ${datos.motivo}</p>`
+              : '<p>Si tenés dudas, contactanos en las oficinas de la ASADA.</p>'
+        }
+        <p>Gracias por usar el Sistema de Información de Abonados (SIAPB).</p>
+      `,
+    });
+  }
 }

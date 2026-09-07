@@ -53,6 +53,6 @@ import { CloudinaryModule } from '../../config/cloudinary.module';
   ],
   controllers: [AuthController, RolesController, UsersController],
   providers: [AuthService, RolesService, LocalStrategy, JwtStrategy, MailService],
-  exports: [AuthService, RolesService, TypeOrmModule],
+  exports: [AuthService, RolesService, MailService, TypeOrmModule],
 })
 export class AuthModule { }
