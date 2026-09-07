@@ -584,6 +584,99 @@ export class AuthService {
     };
   }
 
+  /**
+   * Crea (o vincula) la cuenta de acceso de un Abonado recién registrado
+   * por un administrador — ver AbonadosService.create(). Se llama
+   * automáticamente al dar de alta el abonado, sin que el admin tenga que
+   * ir aparte al módulo de Usuarios a inventarle una contraseña.
+   *
+   * - Si ya existe una cuenta con ese correo (ej. la persona ya tenía
+   *   acceso como Empleado/Junta), solo se vincula: no se toca su
+   *   contraseña ni se le manda correo, para no interferir con una cuenta
+   *   que ya usa.
+   * - Si no existe, se crea una cuenta activa con una contraseña aleatoria
+   *   que nadie conoce (la persona nunca la necesita), y se le manda un
+   *   correo con un enlace que usa el mismo mecanismo de "recuperar
+   *   contraseña" (password_reset_tokens + /restablecer-password) para que
+   *   defina la suya. El sistema no distingue entre poner una contraseña
+   *   por primera vez o cambiar una que ya existía, así que no hace falta
+   *   un flujo aparte.
+   */
+  async crearCuentaParaAbonado(abonado: Abonado): Promise<void> {
+    const existente = await this.userRepository.findOne({
+      where: { email: abonado.correo },
+    });
+
+    if (existente) {
+      abonado.usuario = existente;
+      await this.abonadoRepository.save(abonado);
+      return;
+    }
+
+    const rolAbonado = await this.roleRepository.findOne({
+      where: { name: Role.ABONADO },
+    });
+    if (!rolAbonado) {
+      // No debería pasar en un ambiente ya sembrado ("npm run seed:roles"),
+      // pero si pasa no debe tumbar el alta del abonado — solo se registra
+      // el error, y la cuenta se puede crear después a mano desde Usuarios.
+      console.error(
+        `No existe el rol '${Role.ABONADO}' en la tabla roles: no se pudo crear la cuenta de acceso del abonado ${abonado.id}.`,
+      );
+      return;
+    }
+
+    // Contraseña aleatoria que nadie llega a usar: la persona define la
+    // suya con el enlace del correo antes de poder iniciar sesión.
+    const passwordAleatoria = randomBytes(32).toString('hex');
+    const nuevoUsuario = this.userRepository.create({
+      email: abonado.correo,
+      password: await bcrypt.hash(passwordAleatoria, BCRYPT_COST),
+      role: rolAbonado,
+      isActive: true,
+    });
+    const usuarioGuardado = await this.userRepository.save(nuevoUsuario);
+
+    abonado.usuario = usuarioGuardado;
+    await this.abonadoRepository.save(abonado);
+
+    const tokenPlano = randomBytes(32).toString('hex');
+    // Mismo horizonte que el correo de bienvenida/activación (24h por
+    // defecto): es un correo de "primer acceso", tiene sentido darle más
+    // margen que a un reset de contraseña normal (30 min).
+    const horas = Number(
+      this.configService.get<string>('ACCOUNT_ACTIVATION_EXPIRES_HOURS') ??
+      24,
+    );
+    const expiresAt = new Date(Date.now() + horas * 60 * 60 * 1000);
+
+    await this.passwordResetTokenRepository.save(
+      this.passwordResetTokenRepository.create({
+        token_hash: AuthService.hashResetToken(tokenPlano),
+        usuario_id: usuarioGuardado.id,
+        expires_at: expiresAt,
+      }),
+    );
+
+    const url = `${this.configService.get<string>(
+      'FRONTEND_URL',
+    )}/restablecer-password?token=${tokenPlano}`;
+
+    try {
+      await this.mailService.enviarCorreoAccesoAbonado(
+        usuarioGuardado.email,
+        url,
+      );
+    } catch (error) {
+      // La cuenta y el vínculo ya quedaron guardados aunque el correo
+      // falle; se puede reenviar el acceso después desde Usuarios.
+      console.error(
+        `Error al enviar el correo de acceso al abonado ${abonado.id}:`,
+        error,
+      );
+    }
+  }
+
   // ── Perfil del usuario ────────────────────────────────────────────
 
   /**

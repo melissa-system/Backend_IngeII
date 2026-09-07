@@ -259,6 +259,22 @@ export class AbonadosService {
     });
 
     const guardado = await this.abonadoRepository.save(nuevoAbonado);
+
+    // 8. Crear (o vincular) automáticamente la cuenta de acceso del
+    // abonado y mandarle el correo para que defina su contraseña — ver
+    // AuthService.crearCuentaParaAbonado(). Se aísla en su propio
+    // try/catch: el abonado ya quedó guardado, así que un problema acá
+    // (rol faltante, SMTP caído, etc.) no debe tumbar el alta. El acceso
+    // se puede resolver después a mano desde el módulo de Usuarios.
+    try {
+      await this.authService.crearCuentaParaAbonado(guardado);
+    } catch (error) {
+      console.error(
+        `No se pudo crear la cuenta de acceso para el abonado ${guardado.id}:`,
+        error,
+      );
+    }
+
     return this.aPlano(await this.cargarConDetalle(guardado.id));
   }
 
