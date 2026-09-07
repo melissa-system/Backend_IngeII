@@ -11,6 +11,7 @@ import {
   UseInterceptors,
   UploadedFile,
   UnauthorizedException,
+  BadRequestException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -34,6 +35,17 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 // Nombre de la cookie del Refresh Token; lo reutilizarán /refresh y /logout.
 export const REFRESH_COOKIE = 'refresh_token';
+
+// Límite y formatos permitidos para la foto de perfil (PATCH /auth/foto).
+// 2 MB es holgado para una foto de perfil y queda muy por debajo del
+// máximo de 10 MB por imagen del plan gratuito de Cloudinary.
+const FOTO_MAX_FILE_SIZE = 2 * 1024 * 1024;
+const FOTO_ALLOWED_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+];
 
 @Controller('auth')
 export class AuthController {
@@ -187,18 +199,26 @@ export class AuthController {
   }
 
   // PATCH /auth/foto
-  // Sube una foto de perfil (multipart/form-data, campo "foto").
-  // Guarda en uploads/usuarios/ y retorna la URL relativa.
+  // Sube una foto de perfil (multipart/form-data, campo "foto"). Se recibe
+  // en memoria y el service la sube a Cloudinary (ver auth.service.ts,
+  // subirFoto) — ya no se guarda nada en uploads/usuarios/ del servidor.
   @UseGuards(JwtAuthGuard)
   @Patch('foto')
   @UseInterceptors(
     FileInterceptor('foto', {
       storage: memoryStorage(),
-      limits: { fileSize: 2 * 1024 * 1024 }, // 2 MB
+      limits: { fileSize: FOTO_MAX_FILE_SIZE },
       fileFilter: (_req, file, cb) => {
-        const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-        if (!allowed.includes(file.mimetype)) {
-          cb(new UnauthorizedException('Solo se permiten imágenes (JPG, PNG, GIF, WEBP)'), false);
+        if (!FOTO_ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+          // BadRequestException (400), no UnauthorizedException (401): el
+          // usuario sí está autenticado, lo que está mal es el archivo que
+          // mandó, no su sesión.
+          cb(
+            new BadRequestException(
+              'Solo se permiten imágenes (JPG, PNG, GIF, WEBP)',
+            ),
+            false,
+          );
           return;
         }
         cb(null, true);
@@ -209,6 +229,13 @@ export class AuthController {
     @Req() req: Request,
     @UploadedFile() file: Express.Multer.File,
   ) {
+    // Revalidación explícita de tamaño (limits.fileSize de multer no
+    // siempre produce un mensaje claro) — mismo criterio que en
+    // documentos.controller.ts y solicitudes.controller.ts.
+    if (file && file.size > FOTO_MAX_FILE_SIZE) {
+      throw new BadRequestException('La foto no puede superar los 2 MB');
+    }
+
     const { id } = req.user as { id: number };
     return this.authService.subirFoto(id, file);
   }
