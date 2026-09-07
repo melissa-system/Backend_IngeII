@@ -30,6 +30,7 @@ export class EmpleadosController {
     fecha_ingreso: string;
     usuario_id?: number;
     email?: string;
+    confirmarVinculacion?: boolean;
   }) {
     return this.empleadosService.crear(body);
   }
@@ -70,6 +71,7 @@ export class EmpleadosController {
       correo?: string | null;
       fecha_ingreso?: string;
       usuario_id?: number | null;
+      confirmarVinculacion?: boolean;
     },
   ) {
     return this.empleadosService.actualizar(id, body);

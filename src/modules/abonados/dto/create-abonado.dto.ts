@@ -16,4 +16,11 @@ export class CreateAbonadoDto {
   telefono: string;
   correo: string;
   direccion: string;
+
+  // Confirma explícitamente que se quiere registrar como abonado a alguien
+  // cuya cédula ya existe como empleado (ej. un miembro de la Junta que
+  // también es abonado). Sin este flag, esa combinación se rechaza para
+  // evitar duplicados accidentales; con él, se permite (ver
+  // AbonadosService.verificarCedulaNoUsadaPorEmpleado).
+  confirmarVinculacion?: boolean;
 }

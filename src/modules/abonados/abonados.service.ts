@@ -182,18 +182,24 @@ export class AbonadosService {
       );
     }
 
-    // 5b. La cédula tampoco puede repetirse con la de un empleado: se trata
-    // como única en todo el sistema (Abonados + Empleados), no solo dentro
-    // de esta tabla. Si la misma persona es empleado Y abonado, hay que
-    // decidirlo a propósito (vinculando registros), no dejar que quede como
-    // dos filas sueltas con la misma cédula.
+    // 5b. La cédula tampoco puede repetirse con la de un empleado, SALVO que
+    // se confirme explícitamente que es la misma persona (ej. alguien de la
+    // Junta que también es abonado): sin confirmarVinculacion se rechaza
+    // (evita duplicados por error), con él se permite. Ver mismo criterio
+    // simétrico en EmpleadosService.
     const empleadoConEsaCedula = await this.empleadoRepository.findOneBy({
       cedula: createAbonadoDto.cedula,
     });
-    if (empleadoConEsaCedula) {
-      throw new BadRequestException(
-        `La cédula ${createAbonadoDto.cedula} ya está registrada como empleado (${empleadoConEsaCedula.nombre}). Si es la misma persona, coordiná con el módulo de Personal antes de registrarla también como abonado.`,
-      );
+    if (empleadoConEsaCedula && !createAbonadoDto.confirmarVinculacion) {
+      throw new BadRequestException({
+        requiereConfirmacion: true,
+        tipo: 'empleado',
+        registro: {
+          id: empleadoConEsaCedula.id,
+          nombre: empleadoConEsaCedula.nombre,
+        },
+        message: `La cédula ${createAbonadoDto.cedula} ya está registrada como empleado (${empleadoConEsaCedula.nombre}). Si es la misma persona, confirmá para registrarla también como abonado.`,
+      });
     }
 
     const correoExistente = await this.abonadoRepository.findOneBy({

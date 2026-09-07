@@ -34,15 +34,22 @@ export class EmpleadosService {
   ) {}
 
   // La cédula se trata como única en todo el sistema (Empleados + Abonados),
-  // no solo dentro de esta tabla — mismo criterio aplicado en
-  // AbonadosService.create. excluirId se usa desde actualizar() para no
-  // comparar un empleado contra sí mismo al corregir su propia cédula.
-  private async verificarCedulaNoUsadaPorAbonado(cedula: string): Promise<void> {
+  // SALVO que se confirme explícitamente que es la misma persona (mismo
+  // criterio simétrico que AbonadosService.create) — ej. alguien de la
+  // Junta que también es abonado.
+  private async verificarCedulaNoUsadaPorAbonado(
+    cedula: string,
+    confirmar?: boolean,
+  ): Promise<void> {
+    if (confirmar) return;
     const abonado = await this.abonadoRepository.findOneBy({ cedula });
     if (abonado) {
-      throw new BadRequestException(
-        `La cédula ${cedula} ya está registrada como abonado (${abonado.nombre}). Si es la misma persona, coordiná con el módulo de Abonados antes de registrarla también como empleado.`,
-      );
+      throw new BadRequestException({
+        requiereConfirmacion: true,
+        tipo: 'abonado',
+        registro: { id: abonado.id, nombre: abonado.nombre },
+        message: `La cédula ${cedula} ya está registrada como abonado (${abonado.nombre}). Si es la misma persona, confirmá para registrarla también como empleado.`,
+      });
     }
   }
 
@@ -69,6 +76,7 @@ export class EmpleadosService {
     fecha_ingreso: string;
     usuario_id?: number;
     email?: string;
+    confirmarVinculacion?: boolean;
   }): Promise<EmpleadoPlano> {
     const cedulaExistente = await this.empleadoRepository.findOne({
       where: { cedula: datos.cedula },
@@ -78,7 +86,10 @@ export class EmpleadosService {
         `Ya existe un empleado con la cédula ${datos.cedula}`,
       );
     }
-    await this.verificarCedulaNoUsadaPorAbonado(datos.cedula);
+    await this.verificarCedulaNoUsadaPorAbonado(
+      datos.cedula,
+      datos.confirmarVinculacion,
+    );
 
     const correo = datos.email?.trim().toLowerCase() ?? null;
 
@@ -192,6 +203,7 @@ export class EmpleadosService {
       correo?: string | null;
       fecha_ingreso?: string;
       usuario_id?: number | null;
+      confirmarVinculacion?: boolean;
     },
   ): Promise<EmpleadoPlano> {
     const empleado = await this.empleadoRepository.findOne({
@@ -211,7 +223,10 @@ export class EmpleadosService {
           `Ya existe un empleado con la cédula ${datos.cedula}`,
         );
       }
-      await this.verificarCedulaNoUsadaPorAbonado(datos.cedula);
+      await this.verificarCedulaNoUsadaPorAbonado(
+        datos.cedula,
+        datos.confirmarVinculacion,
+      );
     }
 
     if (datos.usuario_id !== undefined) {

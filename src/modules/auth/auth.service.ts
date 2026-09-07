@@ -600,10 +600,27 @@ export class AuthService {
       throw new UnauthorizedException('Sesión inválida');
     }
 
-    // Buscar si es empleado
-    const empleado = await this.empleadoRepository.findOne({
-      where: { usuario: { id: usuarioId } },
-    });
+    // Se buscan AMBOS vínculos, no solo el primero que aparezca: una misma
+    // cuenta puede estar ligada a un Empleado (ej. Junta Directiva) Y a un
+    // Abonado a la vez (ver la confirmación explícita en
+    // AbonadosService.create / EmpleadosService.crear). El selector de
+    // perfil del frontend usa 'vinculos' para saber si mostrar la opción de
+    // "ver como Abonado"; los campos planos (nombre, cedula, etc.) siguen
+    // priorizando empleado por compatibilidad con lo que ya consumía
+    // Perfil.tsx antes de este cambio.
+    const [empleado, abonado] = await Promise.all([
+      this.empleadoRepository.findOne({ where: { usuario: { id: usuarioId } } }),
+      this.abonadoRepository.findOne({ where: { usuario: { id: usuarioId } } }),
+    ]);
+
+    const vinculos = {
+      empleado: empleado
+        ? { id: empleado.id, nombre: empleado.nombre, puesto: empleado.puesto }
+        : null,
+      abonado: abonado
+        ? { id: abonado.id, nombre: abonado.nombre, numero_abonado: abonado.numero_abonado }
+        : null,
+    };
 
     if (empleado) {
       return {
@@ -618,13 +635,9 @@ export class AuthService {
         telefono: empleado.telefono,
         puesto: empleado.puesto,
         tipo_asociacion: 'empleado' as const,
+        vinculos,
       };
     }
-
-    // Buscar si es abonado
-    const abonado = await this.abonadoRepository.findOne({
-      where: { usuario: { id: usuarioId } },
-    });
 
     if (abonado) {
       return {
@@ -640,6 +653,7 @@ export class AuthService {
         direccion: abonado.direccion,
         puesto: null,
         tipo_asociacion: 'abonado' as const,
+        vinculos,
       };
     }
 
@@ -656,6 +670,7 @@ export class AuthService {
       telefono: null,
       puesto: null,
       tipo_asociacion: null as string | null,
+      vinculos,
     };
   }
 
