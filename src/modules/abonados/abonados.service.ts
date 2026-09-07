@@ -10,6 +10,8 @@ import { HistorialAbonado } from './entities/historial-abonado.entity';
 import { CreateAbonadoDto } from './dto/create-abonado.dto';
 import { UpdateAbonadoDto } from './dto/update-abonado.dto';
 import { User } from '../auth/entities/user.entity';
+import { Empleado } from '../empleados/entities/empleado.entity';
+import { AuthService } from '../auth/auth.service';
 
 // Forma "plana" que consume el frontend: junta la fila base con los campos
 // de la subtabla que corresponda (fisico o juridico) en un solo objeto,
@@ -48,6 +50,9 @@ export class AbonadosService {
     private readonly historialRepository: Repository<HistorialAbonado>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Empleado)
+    private readonly empleadoRepository: Repository<Empleado>,
+    private readonly authService: AuthService,
   ) {}
 
   private aPlano(abonado: Abonado): AbonadoPlano {
@@ -174,6 +179,20 @@ export class AbonadosService {
     if (cedulaExistente) {
       throw new BadRequestException(
         `Ya existe un abonado registrado con la cédula ${createAbonadoDto.cedula}`,
+      );
+    }
+
+    // 5b. La cédula tampoco puede repetirse con la de un empleado: se trata
+    // como única en todo el sistema (Abonados + Empleados), no solo dentro
+    // de esta tabla. Si la misma persona es empleado Y abonado, hay que
+    // decidirlo a propósito (vinculando registros), no dejar que quede como
+    // dos filas sueltas con la misma cédula.
+    const empleadoConEsaCedula = await this.empleadoRepository.findOneBy({
+      cedula: createAbonadoDto.cedula,
+    });
+    if (empleadoConEsaCedula) {
+      throw new BadRequestException(
+        `La cédula ${createAbonadoDto.cedula} ya está registrada como empleado (${empleadoConEsaCedula.nombre}). Si es la misma persona, coordiná con el módulo de Personal antes de registrarla también como abonado.`,
       );
     }
 
@@ -436,6 +455,17 @@ export class AbonadosService {
 
     abonado.estado = nuevoEstado;
     const guardado = await this.abonadoRepository.save(abonado);
+
+    // Si se inhabilita el abonado y tiene una cuenta de usuario vinculada,
+    // esa cuenta se desactiva también (y se le revocan las sesiones
+    // activas — ver AuthService.cambiarEstadoUsuario): un abonado inactivo
+    // no debería poder seguir entrando a consultar sus documentos o
+    // servicios. Es una cascada de un solo sentido a propósito: reactivar
+    // el abonado NO reactiva automáticamente su usuario, eso queda como
+    // decisión aparte del administrador.
+    if (nuevoEstado === 'Inactivo' && abonado.usuario) {
+      await this.authService.cambiarEstadoUsuario(abonado.usuario.id, false);
+    }
 
     if (usuarioId !== undefined) {
       await this.registrarHistorial(

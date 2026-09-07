@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Empleado } from './entities/empleado.entity';
 import { User } from '../auth/entities/user.entity';
+import { Abonado } from '../abonados/entities/abonado.entity';
 
 export interface EmpleadoPlano {
   id: number;
@@ -28,7 +29,22 @@ export class EmpleadosService {
     private readonly empleadoRepository: Repository<Empleado>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Abonado)
+    private readonly abonadoRepository: Repository<Abonado>,
   ) {}
+
+  // La cédula se trata como única en todo el sistema (Empleados + Abonados),
+  // no solo dentro de esta tabla — mismo criterio aplicado en
+  // AbonadosService.create. excluirId se usa desde actualizar() para no
+  // comparar un empleado contra sí mismo al corregir su propia cédula.
+  private async verificarCedulaNoUsadaPorAbonado(cedula: string): Promise<void> {
+    const abonado = await this.abonadoRepository.findOneBy({ cedula });
+    if (abonado) {
+      throw new BadRequestException(
+        `La cédula ${cedula} ya está registrada como abonado (${abonado.nombre}). Si es la misma persona, coordiná con el módulo de Abonados antes de registrarla también como empleado.`,
+      );
+    }
+  }
 
   private aPlano(emp: Empleado): EmpleadoPlano {
     return {
@@ -62,6 +78,7 @@ export class EmpleadosService {
         `Ya existe un empleado con la cédula ${datos.cedula}`,
       );
     }
+    await this.verificarCedulaNoUsadaPorAbonado(datos.cedula);
 
     const correo = datos.email?.trim().toLowerCase() ?? null;
 
@@ -194,6 +211,7 @@ export class EmpleadosService {
           `Ya existe un empleado con la cédula ${datos.cedula}`,
         );
       }
+      await this.verificarCedulaNoUsadaPorAbonado(datos.cedula);
     }
 
     if (datos.usuario_id !== undefined) {

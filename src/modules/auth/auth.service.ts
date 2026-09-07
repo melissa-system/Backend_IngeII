@@ -388,6 +388,12 @@ export class AuthService {
       role_id: number;
       isActive: boolean;
       createdAt: Date;
+      vinculo: {
+        tipo: 'Abonado' | 'Empleado';
+        id: number;
+        nombre: string;
+        cedula: string;
+      } | null;
     }>
   > {
     const usuarios = await this.userRepository.find({
@@ -395,14 +401,41 @@ export class AuthService {
       order: { id: 'ASC' },
     });
 
-    return usuarios.map((u) => ({
-      id: u.id,
-      email: u.email,
-      role: u.role?.name ?? 'Sin rol',
-      role_id: u.role?.id,
-      isActive: u.isActive,
-      createdAt: u.createdAt,
-    }));
+    // La vista de Usuarios necesita mostrar a qué Abonado o Empleado
+    // pertenece cada cuenta (si a alguno) — hoy quedaba invisible porque la
+    // FK vive del otro lado (Abonado.usuario_id / Empleado.usuario_id), no
+    // en User. Se resuelve con dos consultas en bloque (no una por
+    // usuario) y se arman mapas usuario_id -> registro.
+    const [abonados, empleados] = await Promise.all([
+      this.abonadoRepository.find({ relations: { usuario: true } }),
+      this.empleadoRepository.find({ relations: { usuario: true } }),
+    ]);
+    const abonadoPorUsuarioId = new Map(
+      abonados.filter((a) => a.usuario).map((a) => [a.usuario!.id, a]),
+    );
+    const empleadoPorUsuarioId = new Map(
+      empleados.filter((e) => e.usuario).map((e) => [e.usuario!.id, e]),
+    );
+
+    return usuarios.map((u) => {
+      const abonado = abonadoPorUsuarioId.get(u.id);
+      const empleado = empleadoPorUsuarioId.get(u.id);
+      const vinculo = abonado
+        ? { tipo: 'Abonado' as const, id: abonado.id, nombre: abonado.nombre, cedula: abonado.cedula }
+        : empleado
+          ? { tipo: 'Empleado' as const, id: empleado.id, nombre: empleado.nombre, cedula: empleado.cedula }
+          : null;
+
+      return {
+        id: u.id,
+        email: u.email,
+        role: u.role?.name ?? 'Sin rol',
+        role_id: u.role?.id,
+        isActive: u.isActive,
+        createdAt: u.createdAt,
+        vinculo,
+      };
+    });
   }
 
   // Activar o Inhabilitar usuario y revocar sesiones activas si se desactiva
