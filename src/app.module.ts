@@ -34,6 +34,14 @@ import { ConfiguracionModule } from './modules/configuracion/configuracion.modul
         ssl: {
           rejectUnauthorized: false,
         },
+        // Sin esto, mysql2 serializa los Date de JS con la hora LOCAL del
+        // proceso de Node (no hay TZ fijado en el entorno) al escribir
+        // columnas timestamp, mientras que las consultas comparan con
+        // NOW() de MySQL (UTC en Aiven) — el desfase hacía que tokens como
+        // el de "restablecer contraseña" (vigencia de 30 min) aparecieran
+        // "expirados" casi de inmediato. 'Z' fuerza a mysql2 a leer y
+        // escribir siempre en UTC, que es lo que NOW() también usa.
+        timezone: 'Z',
       }),
     }),
    

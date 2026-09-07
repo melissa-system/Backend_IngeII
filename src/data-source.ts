@@ -19,6 +19,9 @@ export const AppDataSource = new DataSource({
   ssl: {
     rejectUnauthorized: false,
   },
+  // Mismo motivo que en app.module.ts: fuerza a mysql2 a escribir/leer en
+  // UTC, consistente con NOW() de MySQL.
+  timezone: 'Z',
   synchronize: false,
   entities: [`${__dirname}/**/*.entity{.ts,.js}`],
   migrations: [`${__dirname}/migrations/*{.ts,.js}`],
