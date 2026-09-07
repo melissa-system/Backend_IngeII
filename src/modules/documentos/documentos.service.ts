@@ -13,7 +13,7 @@ import {
   VisibilidadDocumento,
   EstadoDocumento,
 } from './enums/documento.enums';
-import { User } from '../auth/entities/user.entity';
+import { EmpleadosService } from '../empleados/empleados.service';
 import { CloudinaryService } from '../../config/cloudinary.service';
 
 // Carpeta dentro de la cuenta de Cloudinary donde viven estos documentos
@@ -24,8 +24,7 @@ export class DocumentosService {
   constructor(
     @InjectRepository(Documento)
     private readonly documentoRepository: Repository<Documento>,
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
+    private readonly empleadosService: EmpleadosService,
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
@@ -106,8 +105,8 @@ export class DocumentosService {
     );
 
     try {
-      const subidoPor = usuarioId
-        ? await this.userRepository.findOneBy({ id: usuarioId })
+      const empleado = usuarioId
+        ? await this.empleadosService.buscarPorUsuarioId(usuarioId)
         : null;
 
       const nuevoDocumento = this.documentoRepository.create({
@@ -118,7 +117,7 @@ export class DocumentosService {
         public_id: archivoSubido.publicId,
         visibilidad: visibilidad as VisibilidadDocumento,
         estado: EstadoDocumento.VIGENTE,
-        subido_por: subidoPor,
+        empleado,
       });
 
       return await this.documentoRepository.save(nuevoDocumento);
@@ -174,8 +173,8 @@ export class DocumentosService {
       actual.estado = EstadoDocumento.INHABILITADO;
       await this.documentoRepository.save(actual);
 
-      const subidoPor = usuarioId
-        ? await this.userRepository.findOneBy({ id: usuarioId })
+      const empleado = usuarioId
+        ? await this.empleadosService.buscarPorUsuarioId(usuarioId)
         : null;
 
       const nuevaVersion = this.documentoRepository.create({
@@ -186,7 +185,7 @@ export class DocumentosService {
         public_id: archivoSubido.publicId,
         visibilidad: actual.visibilidad,
         estado: EstadoDocumento.VIGENTE,
-        subido_por: subidoPor,
+        empleado,
       });
 
       return await this.documentoRepository.save(nuevaVersion);

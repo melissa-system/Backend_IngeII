@@ -9,6 +9,9 @@ import { EmpleadosController } from './empleados.controller';
   imports: [TypeOrmModule.forFeature([Empleado, User])],
   controllers: [EmpleadosController],
   providers: [EmpleadosService],
-  exports: [TypeOrmModule],
+  // EmpleadosService se exporta además de TypeOrmModule: Publicaciones,
+  // Documentos y Configuración lo inyectan directamente para resolver
+  // id_empleado a partir del usuario autenticado (ver buscarPorUsuarioId).
+  exports: [TypeOrmModule, EmpleadosService],
 })
 export class EmpleadosModule {}

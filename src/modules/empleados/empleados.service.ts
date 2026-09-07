@@ -124,6 +124,18 @@ export class EmpleadosService {
     return usuario ?? null;
   }
 
+  // Dirección inversa a la anterior: a partir del id de la cuenta que hace
+  // la petición (req.user.id, siempre un usuario_id) resuelve el Empleado
+  // vinculado, para poblar el campo id_empleado en Publicaciones, Documentos,
+  // Configuración, etc. Devuelve null si esa cuenta todavía no tiene un
+  // empleado vinculado (ver crear/actualizar más arriba) — en ese caso el
+  // registro que se está creando queda sin autoría, no se bloquea por eso.
+  async buscarPorUsuarioId(usuarioId: number): Promise<Empleado | null> {
+    return this.empleadoRepository.findOne({
+      where: { usuario: { id: usuarioId } },
+    });
+  }
+
   async buscar(buscar?: string): Promise<EmpleadoPlano[]> {
     const qb = this.empleadoRepository
       .createQueryBuilder('e')

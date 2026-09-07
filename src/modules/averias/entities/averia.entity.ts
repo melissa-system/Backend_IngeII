@@ -58,13 +58,15 @@ export class Averia {
   @CreateDateColumn()
   fecha_reporte: Date;
 
-  // 9. Fontanero responsable del caso. NULL al crear el reporte: se
-  // completa después, cuando el personal administrativo asigna el caso al
-  // actualizar el estado (esa ruta de asignación todavía no existe —
-  // AveriasController solo tiene create/findAll — queda como tarea
-  // aparte). Apunta a empleados (no a usuarios) porque acá sí interesa
-  // identificar al funcionario específico, con sus datos de personal.
+  // 9. Empleado responsable del caso (normalmente un fontanero, pero se
+  // nombra id_empleado para mantener el mismo criterio de autoría que
+  // publicaciones/documentos/configuración/solicitudes — cualquier miembro
+  // del personal podría quedar asignado, no solo fontaneros). NULL al crear
+  // el reporte: se completa después, cuando el personal administrativo
+  // asigna el caso al actualizar el estado (esa ruta de asignación todavía
+  // no existe — AveriasController solo tiene create/findAll — queda como
+  // tarea aparte).
   @ManyToOne(() => Empleado, { nullable: true })
-  @JoinColumn({ name: 'fontanero_asignado_id' })
-  fontanero_asignado: Empleado | null;
+  @JoinColumn({ name: 'id_empleado' })
+  empleado: Empleado | null;
 }

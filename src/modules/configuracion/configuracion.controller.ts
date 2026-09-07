@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Body, UseGuards, Request } from '@nestjs/common';
 import { ConfiguracionService } from './configuracion.service';
 import { UpdateConfiguracionDto } from './dto/update-configuracion.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -6,6 +6,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { Role } from '../../common/enums/roles.enum';
+import type { RequestUser } from '../auth/strategies/jwt.strategy';
 
 @Controller('configuracion')
 export class ConfiguracionController {
@@ -28,7 +29,10 @@ export class ConfiguracionController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @Patch()
-  actualizar(@Body() dto: UpdateConfiguracionDto) {
-    return this.service.actualizar(dto);
+  actualizar(
+    @Body() dto: UpdateConfiguracionDto,
+    @Request() req: { user?: RequestUser },
+  ) {
+    return this.service.actualizar(dto, req.user?.id);
   }
 }

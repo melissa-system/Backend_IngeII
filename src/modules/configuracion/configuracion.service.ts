@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Configuracion } from './entities/configuracion.entity';
 import { UpdateConfiguracionDto } from './dto/update-configuracion.dto';
+import { EmpleadosService } from '../empleados/empleados.service';
 
 /**
  * Servicio de configuración general de la ASADA.
@@ -14,6 +15,7 @@ export class ConfiguracionService {
   constructor(
     @InjectRepository(Configuracion)
     private readonly repo: Repository<Configuracion>,
+    private readonly empleadosService: EmpleadosService,
   ) {}
 
   /**
@@ -31,10 +33,19 @@ export class ConfiguracionService {
 
   /**
    * Actualiza parcialmente la configuración (solo campos enviados).
+   * usuarioId es el id de la cuenta autenticada que hace la petición; se
+   * resuelve al empleado vinculado (si lo hay) para dejar registrado quién
+   * hizo el último cambio.
    */
-  async actualizar(dto: UpdateConfiguracionDto): Promise<Configuracion> {
+  async actualizar(
+    dto: UpdateConfiguracionDto,
+    usuarioId?: number,
+  ): Promise<Configuracion> {
     const config = await this.obtener();
     Object.assign(config, dto);
+    config.empleado = usuarioId
+      ? await this.empleadosService.buscarPorUsuarioId(usuarioId)
+      : config.empleado;
     return this.repo.save(config);
   }
 }

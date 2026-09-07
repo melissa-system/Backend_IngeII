@@ -4,7 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Empleado } from '../../empleados/entities/empleado.entity';
 
 /**
  * Configuración general de la ASADA (tabla singleton: siempre 1 fila, id=1).
@@ -59,6 +62,16 @@ export class Configuracion {
   /** Horario de domingos */
   @Column({ type: 'varchar', length: 100, default: 'Cerrado' })
   horario_domingo: string;
+
+  // ── Autoría ──────────────────────────────────────────────────────
+
+  /** Empleado que hizo el último cambio a esta configuración. Nullable:
+   * queda null mientras nadie la actualiza, o si quien la actualizó no
+   * tiene un empleado vinculado a su cuenta (ver EmpleadosService). Mismo
+   * criterio unificado que publicaciones/documentos/averías/solicitudes. */
+  @ManyToOne(() => Empleado, { nullable: true })
+  @JoinColumn({ name: 'id_empleado' })
+  empleado: Empleado | null;
 
   // ── Timestamps ───────────────────────────────────────────────────
 

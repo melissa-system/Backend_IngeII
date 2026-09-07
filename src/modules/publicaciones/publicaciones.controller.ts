@@ -25,8 +25,9 @@ export class PublicacionesController {
 
   // Ya existe JWT real (ver auth.module.ts): las NOTA anteriores que decían
   // "dejar @Public() hasta que exista JWT" quedaron desactualizadas. Ahora
-  // que se agrega autor_id, hace falta req.user de todos modos para saber
-  // quién crea la publicación, así que de paso se cierra este hueco.
+  // que se agrega id_empleado, hace falta req.user de todos modos: el
+  // service usa ese id (de usuarios, no de empleados) para resolver el
+  // empleado vinculado vía EmpleadosService.buscarPorUsuarioId.
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @Post()

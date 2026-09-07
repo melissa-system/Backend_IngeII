@@ -11,7 +11,7 @@ import {
   VisibilidadDocumento,
   EstadoDocumento,
 } from '../enums/documento.enums';
-import { User } from '../../auth/entities/user.entity';
+import { Empleado } from '../../empleados/entities/empleado.entity';
 
 // 1. Le decimos al ORM que esto se convertirá en la tabla 'documentos' en MySQL
 @Entity('documentos')
@@ -75,12 +75,12 @@ export class Documento {
   @CreateDateColumn()
   fecha_carga: Date;
 
-  // 10. Usuario autenticado que subió este documento/versión. Apunta a
-  // usuarios (no a empleados) a propósito: acá solo interesa saber qué
-  // cuenta hizo la carga, sin depender de que exista un registro de
-  // empleado. Nullable por si en algún momento se crea un documento sin
-  // usuario autenticado detrás (ej. un script de migración de datos).
-  @ManyToOne(() => User, { nullable: true })
-  @JoinColumn({ name: 'subido_por_id' })
-  subido_por: User | null;
+  // 10. Empleado que subió este documento/versión. Apunta a empleados (no a
+  // usuarios), igual que publicaciones.empleado — se resuelve desde el
+  // usuario autenticado vía EmpleadosService.buscarPorUsuarioId. Nullable:
+  // si esa cuenta no tiene empleado vinculado, o si el documento se creó
+  // antes de este cambio o por un script de migración de datos.
+  @ManyToOne(() => Empleado, { nullable: true })
+  @JoinColumn({ name: 'id_empleado' })
+  empleado: Empleado | null;
 }

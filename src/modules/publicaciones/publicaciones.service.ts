@@ -8,7 +8,7 @@ import { Repository } from 'typeorm';
 import { Publicacion } from './entities/publicacion.entity';
 import { CreatePublicacionDto } from './dto/create-publicacion.dto';
 import { UpdatePublicacionDto } from './dto/update-publicacion.dto';
-import { User } from '../auth/entities/user.entity';
+import { EmpleadosService } from '../empleados/empleados.service';
 
 // Límites de caracteres: deben coincidir con el largo de columna en la entidad
 const LIMITES = {
@@ -25,8 +25,7 @@ export class PublicacionesService {
   constructor(
     @InjectRepository(Publicacion)
     private readonly publicacionRepository: Repository<Publicacion>,
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
+    private readonly empleadosService: EmpleadosService,
   ) {}
 
   private validarLongitudes(datos: {
@@ -61,9 +60,10 @@ export class PublicacionesService {
     // 2. Validar longitud máxima de cada campo de texto
     this.validarLongitudes(createPublicacionDto);
 
-    // 3. Quién la crea: el usuario autenticado que hace la petición (si lo hay)
-    const autor = usuarioId
-      ? await this.userRepository.findOneBy({ id: usuarioId })
+    // 3. Quién la crea: el empleado vinculado a la cuenta autenticada que
+    // hace la petición (si lo hay y si esa cuenta tiene empleado vinculado)
+    const empleado = usuarioId
+      ? await this.empleadosService.buscarPorUsuarioId(usuarioId)
       : null;
 
     // 4. Crear el registro. Si no se indica 'publicado', queda visible por defecto
@@ -75,7 +75,7 @@ export class PublicacionesService {
         createPublicacionDto.publicado !== undefined
           ? createPublicacionDto.publicado
           : true,
-      autor,
+      empleado,
     });
 
     // 5. Guardar en MySQL

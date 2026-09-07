@@ -6,7 +6,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { Abonado } from '../../abonados/entities/abonado.entity';
+import { Empleado } from '../../empleados/entities/empleado.entity';
 
 // Tabla dedicada a las solicitudes de paja de agua (nueva conexión).
 // Más adelante se podrán agregar otras tablas de solicitudes
@@ -88,12 +88,14 @@ export class SolicitudPajaAgua {
   @CreateDateColumn()
   fecha_solicitud: Date;
 
-  // Trazabilidad histórica únicamente: NULL siempre hasta que el
-  // administrador aprueba la solicitud y crea el abonado (ver el flujo
-  // descrito en Abonado.usuario, punto 2 — todavía no implementado). No se
-  // usa ni se exige en el registro público ni en ningún paso previo a esa
-  // aprobación; nullable a propósito, no es parte del snapshot original.
-  @ManyToOne(() => Abonado, { nullable: true })
-  @JoinColumn({ name: 'abonado_id' })
-  abonado: Abonado | null;
+  // Empleado que revisó/procesó la solicitud (aprobó, rechazó o la marcó
+  // completada). NULL siempre por ahora: todavía no existe la ruta de
+  // revisión (SolicitudesController solo tiene create/findAll) — queda como
+  // tarea aparte, igual que la asignación en Averías. No confundir con
+  // "quién se convierte en abonado": eso no se registra acá (ver nota en
+  // Abonado.usuario) — este campo es autoría interna, mismo criterio que
+  // publicaciones/documentos/configuración/averías.
+  @ManyToOne(() => Empleado, { nullable: true })
+  @JoinColumn({ name: 'id_empleado' })
+  empleado: Empleado | null;
 }

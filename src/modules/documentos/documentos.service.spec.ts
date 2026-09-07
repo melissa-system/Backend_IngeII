@@ -1,7 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { DocumentosService } from './documentos.service';
 import { Documento } from './entities/documento.entity';
-import { User } from '../auth/entities/user.entity';
+import { EmpleadosService } from '../empleados/empleados.service';
 import { CloudinaryService } from '../../config/cloudinary.service';
 import {
   TipoDocumento,
@@ -40,7 +40,7 @@ describe('DocumentosService', () => {
     save: jest.Mock;
     remove: jest.Mock;
   };
-  let userRepository: { findOneBy: jest.Mock };
+  let empleadosService: { buscarPorUsuarioId: jest.Mock };
   let cloudinaryService: {
     subirArchivo: jest.Mock;
     eliminarArchivo: jest.Mock;
@@ -101,8 +101,10 @@ describe('DocumentosService', () => {
       }),
     };
 
-    userRepository = {
-      findOneBy: jest.fn(() => Promise.resolve({ id: 1, email: 'admin@test.com' })),
+    empleadosService = {
+      buscarPorUsuarioId: jest.fn(() =>
+        Promise.resolve({ id: 1, nombre: 'Admin', cedula: '1-1111-1111' }),
+      ),
     };
 
     cloudinaryService = {
@@ -114,7 +116,7 @@ describe('DocumentosService', () => {
 
     service = new DocumentosService(
       documentoRepository as unknown as any,
-      userRepository as unknown as any,
+      empleadosService as unknown as EmpleadosService,
       cloudinaryService as unknown as CloudinaryService,
     );
   });
