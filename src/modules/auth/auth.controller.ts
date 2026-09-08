@@ -2,15 +2,21 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Query,
   Req,
   Res,
   Body,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   UnauthorizedException,
+  BadRequestException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
@@ -23,11 +29,24 @@ import { SolicitarResetPasswordDto } from './dto/solicitar-reset-password.dto';
 import { ConfirmarResetPasswordDto } from './dto/confirmar-reset-password.dto';
 import { RegistroDto } from './dto/registro.dto';
 import { VerificarEmailDto } from './dto/verificar-email.dto';
+import { ActualizarPerfilDto } from './dto/actualizar-perfil.dto';
+import { CambiarPerfilDto } from './dto/cambiar-perfil.dto';
 import { LocalAuthGuard } from '../../common/guards/local-auth.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 // Nombre de la cookie del Refresh Token; lo reutilizarán /refresh y /logout.
 export const REFRESH_COOKIE = 'refresh_token';
+
+// Límite y formatos permitidos para la foto de perfil (PATCH /auth/foto).
+// 2 MB es holgado para una foto de perfil y queda muy por debajo del
+// máximo de 10 MB por imagen del plan gratuito de Cloudinary.
+const FOTO_MAX_FILE_SIZE = 2 * 1024 * 1024;
+const FOTO_ALLOWED_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+];
 
 @Controller('auth')
 export class AuthController {
@@ -90,14 +109,14 @@ export class AuthController {
     @Body() _loginDto: LoginDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ accessToken: string; user: Pick<User, 'id' | 'email' | 'role'> }> {
+  ): Promise<{ accessToken: string; user: { id: number; email: string; role: string } }> {
     const user = req.user as User;
     const { accessToken, refreshToken } = await this.authService.login(user);
     this.emitirCookieRefresh(res, refreshToken);
 
     return {
       accessToken,
-      user: { id: user.id, email: user.email, role: user.role },
+      user: { id: user.id, email: user.email, role: user.role.name },
     };
   }
 
@@ -142,7 +161,7 @@ export class AuthController {
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ accessToken: string; user: Pick<User, 'id' | 'email' | 'role'> }> {
+  ): Promise<{ accessToken: string; user: { id: number; email: string; role: string } }> {
     const tokenPlano = req.cookies?.[REFRESH_COOKIE];
     if (!tokenPlano) {
       throw new UnauthorizedException('Sesión inválida');
@@ -154,21 +173,83 @@ export class AuthController {
 
     return {
       accessToken,
-      user: { id: user.id, email: user.email, role: user.role },
+      user: { id: user.id, email: user.email, role: user.role.name },
     };
   }
 
   // GET /auth/perfil
-  // Primera ruta protegida con JwtAuthGuard: valida el Bearer (jwt.strategy.ts),
-  // deja {id, role} en request.user y revalida contra la BD que el usuario
-  // siga activo antes de responder.
+  // Retorna el perfil completo del usuario: datos de la tabla usuarios
+  // más los datos del empleado o abonado asociado (nombre, cédula, etc.).
   @UseGuards(JwtAuthGuard)
   @Get('perfil')
-  async perfil(
-    @Req() req: Request,
-  ): Promise<Pick<User, 'id' | 'email' | 'role'>> {
+  async perfil(@Req() req: Request) {
     const { id } = req.user as { id: number };
-    return this.authService.obtenerPerfil(id);
+    return this.authService.obtenerPerfilCompleto(id);
+  }
+
+  // PATCH /auth/perfil
+  // Actualiza los campos editables del perfil (email y teléfono).
+  @UseGuards(JwtAuthGuard)
+  @Patch('perfil')
+  async actualizarPerfil(
+    @Req() req: Request,
+    @Body() dto: ActualizarPerfilDto,
+  ) {
+    const { id } = req.user as { id: number };
+    return this.authService.actualizarPerfil(id, dto);
+  }
+
+  // POST /auth/cambiar-perfil
+  // Selector de perfil (Sidebar/DashboardHeader): re-emite el Access Token
+  // con el rol del vínculo elegido (Abonado/Empleado), verificado en el
+  // service. No toca el Refresh Token ni el rol real de la cuenta.
+  @UseGuards(JwtAuthGuard)
+  @Post('cambiar-perfil')
+  async cambiarPerfil(@Req() req: Request, @Body() dto: CambiarPerfilDto) {
+    const { id } = req.user as { id: number };
+    return this.authService.cambiarPerfilToken(id, dto.perfil);
+  }
+
+  // PATCH /auth/foto
+  // Sube una foto de perfil (multipart/form-data, campo "foto"). Se recibe
+  // en memoria y el service la sube a Cloudinary (ver auth.service.ts,
+  // subirFoto) — ya no se guarda nada en uploads/usuarios/ del servidor.
+  @UseGuards(JwtAuthGuard)
+  @Patch('foto')
+  @UseInterceptors(
+    FileInterceptor('foto', {
+      storage: memoryStorage(),
+      limits: { fileSize: FOTO_MAX_FILE_SIZE },
+      fileFilter: (_req, file, cb) => {
+        if (!FOTO_ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+          // BadRequestException (400), no UnauthorizedException (401): el
+          // usuario sí está autenticado, lo que está mal es el archivo que
+          // mandó, no su sesión.
+          cb(
+            new BadRequestException(
+              'Solo se permiten imágenes (JPG, PNG, GIF, WEBP)',
+            ),
+            false,
+          );
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async subirFoto(
+    @Req() req: Request,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    // Revalidación explícita de tamaño (limits.fileSize de multer no
+    // siempre produce un mensaje claro) — mismo criterio que en
+    // documentos.controller.ts y solicitudes.controller.ts.
+    if (file && file.size > FOTO_MAX_FILE_SIZE) {
+      throw new BadRequestException('La foto no puede superar los 2 MB');
+    }
+
+    const { id } = req.user as { id: number };
+    return this.authService.subirFoto(id, file);
   }
 
   // POST /auth/cambiar-password

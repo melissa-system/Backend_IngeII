@@ -10,8 +10,10 @@ import { User } from '../modules/auth/entities/user.entity';
 import { RoleEntity } from '../modules/auth/entities/role.entity';
 import { Permission } from '../modules/auth/entities/permission.entity';
 import { RefreshToken } from '../modules/auth/entities/refresh-token.entity';
+import { Empleado } from '../modules/empleados/entities/empleado.entity';
 import { Role } from '../common/enums/roles.enum';
 import { BCRYPT_COST } from '../modules/auth/auth-password.config';
+import { sembrarRoles } from './seed-roles';
 
 configDotenv({ path: '.env', override: true });
 
@@ -31,9 +33,9 @@ async function main(): Promise<void> {
     password: process.env.DB_PASSWORD,
     database: process.env.DB_DATABASE,
     // TypeORM necesita todas las entidades relacionadas registradas aquí
-    // para poder resolver el mapeo de User -> roleEntity -> permissions,
+    // para poder resolver el mapeo de User -> role -> permissions,
     // aunque este script solo lea/escriba directamente sobre User.
-    entities: [User, RoleEntity, Permission, RefreshToken],
+    entities: [User, RoleEntity, Permission, RefreshToken, Empleado],
     // El esquema lo gestiona la app con synchronize:true; aquí solo leemos/escribimos.
     synchronize: false,
   });
@@ -41,24 +43,68 @@ async function main(): Promise<void> {
   await dataSource.initialize();
 
   try {
+    // Asegura que la tabla roles tenga las 4 filas del catálogo antes de
+    // intentar asignarle una al admin (idempotente, no duplica si ya existen).
+    await sembrarRoles(dataSource);
+
+    const roleRepo = dataSource.getRepository(RoleEntity);
+    const rolAdmin = await roleRepo.findOne({ where: { name: Role.ADMIN } });
+    if (!rolAdmin) {
+      throw new Error(
+        `No se encontró la fila de rol '${Role.ADMIN}' en la tabla roles tras sembrarla.`,
+      );
+    }
+
     const repo = dataSource.getRepository(User);
     const hash = await bcrypt.hash(password, BCRYPT_COST);
     const existente = await repo.findOne({ where: { email } });
 
     if (existente) {
       existente.password = hash;
-      existente.role = Role.ADMIN;
+      existente.role = rolAdmin;
       existente.isActive = true;
       await repo.save(existente);
       console.log(`Usuario ${email} actualizado correctamente.`);
     } else {
-      await repo.insert({
+      const nuevo = repo.create({
         email,
         password: hash,
-        role: Role.ADMIN,
+        role: rolAdmin,
         isActive: true,
       });
+      await repo.save(nuevo);
       console.log(`Usuario ${email} creado correctamente.`);
+    }
+
+    // ── Empleado asociado al admin ────────────────────────────────
+    // Crea un registro en empleados vinculado al usuario admin para que
+    // el perfil muestre nombre, cédula, teléfono, etc.
+    const usuarioAdmin = await repo.findOne({ where: { email } });
+    if (!usuarioAdmin) {
+      throw new Error('No se encontró el usuario admin tras crearlo.');
+    }
+
+    const empleadoRepo = dataSource.getRepository(Empleado);
+    const empleadoExistente = await empleadoRepo.findOne({
+      where: { usuario: { id: usuarioAdmin.id } },
+    });
+
+    if (empleadoExistente) {
+      console.log('El admin ya tiene un empleado asociado. No se modifica.');
+    } else {
+      const nuevoEmpleado = empleadoRepo.create({
+        usuario: usuarioAdmin,
+        nombre: 'Administrador',
+        apellido1: 'ASADA',
+        apellido2: null,
+        cedula: '000000000',
+        puesto: 'Administrador del sistema',
+        telefono: '8000-0000',
+        fecha_ingreso: new Date().toISOString().split('T')[0],
+        estado: 'Activo',
+      });
+      await empleadoRepo.save(nuevoEmpleado);
+      console.log('Empleado admin creado y vinculado correctamente.');
     }
   } finally {
     await dataSource.destroy();

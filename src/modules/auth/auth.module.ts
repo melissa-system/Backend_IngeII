@@ -11,14 +11,18 @@ import { RoleEntity } from './entities/role.entity';
 import { Permission } from './entities/permission.entity';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { ActivationToken } from './entities/activation-token.entity';
+import { Empleado } from '../empleados/entities/empleado.entity';
+import { Abonado } from '../abonados/entities/abonado.entity';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { RolesService } from './roles.service';
 import { RolesController } from './roles.controller';
+import { UsersController } from './users.controller';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { MailService } from './mail.service';
 import { POLITICA_LOGIN_THROTTLE } from './auth-throttle.config';
+import { CloudinaryModule } from '../../config/cloudinary.module';
 
 @Module({
   imports: [
@@ -29,6 +33,8 @@ import { POLITICA_LOGIN_THROTTLE } from './auth-throttle.config';
       Permission,
       PasswordResetToken,
       ActivationToken,
+      Empleado,
+      Abonado,
     ]),
     PassportModule,
     ThrottlerModule.forRoot([POLITICA_LOGIN_THROTTLE.default]),
@@ -43,9 +49,10 @@ import { POLITICA_LOGIN_THROTTLE } from './auth-throttle.config';
         },
       }),
     }),
+    CloudinaryModule,
   ],
-  controllers: [AuthController, RolesController],
+  controllers: [AuthController, RolesController, UsersController],
   providers: [AuthService, RolesService, LocalStrategy, JwtStrategy, MailService],
-  exports: [AuthService, RolesService, TypeOrmModule],
+  exports: [AuthService, RolesService, MailService, TypeOrmModule],
 })
-export class AuthModule {}
+export class AuthModule { }

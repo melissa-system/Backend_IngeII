@@ -26,11 +26,15 @@ export class RefreshToken {
   @Column({ name: 'usuario_id' })
   usuario_id: number;
 
-  @Column({ type: 'timestamp' })
-  expires_at: Date;
+  // 'datetime' (no 'timestamp') + nullable: ver el comentario equivalente
+  // en password-reset-token.entity.ts. Con 7 días de vigencia este token
+  // absorbía el desfase de zona horaria sin notarse, pero tenía el mismo
+  // riesgo de fondo (y fue el que de hecho volvió a fallar el ALTER).
+  @Column({ type: 'datetime', nullable: true })
+  expires_at: Date | null;
 
   // Fecha de revocación (logout o rotación). NULL = token vigente.
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'datetime', nullable: true })
   revoked_at: Date | null;
 
   @CreateDateColumn()

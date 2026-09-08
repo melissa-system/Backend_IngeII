@@ -3,12 +3,15 @@ import {
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import {
   TipoDocumento,
   VisibilidadDocumento,
   EstadoDocumento,
 } from '../enums/documento.enums';
+import { Empleado } from '../../empleados/entities/empleado.entity';
 
 // 1. Le decimos al ORM que esto se convertirá en la tabla 'documentos' en MySQL
 @Entity('documentos')
@@ -17,7 +20,7 @@ export class Documento {
   @PrimaryGeneratedColumn()
   id: number;
 
-  // 3. Nombre visible del documento (no es el nombre del archivo físico en disco).
+  // 3. Nombre visible del documento (no es el nombre del archivo físico).
   // Ej: 'Acta de asamblea ordinaria 2026', 'Informe de medición marzo 2026'.
   @Column({ length: 150 })
   nombre: string;
@@ -36,12 +39,18 @@ export class Documento {
   @Column({ type: 'int', default: 1 })
   version: number;
 
-  // 6. Ruta relativa del archivo físico guardado en disco, dentro de
-  // uploads/documentos/ (ver la estrategia de almacenamiento en
-  // documentos.controller.ts). Se sirve públicamente vía
-  // /uploads/documentos/<archivo>, igual que los adjuntos de solicitudes.
-  @Column()
+  // 6. URL del archivo en Cloudinary (secure_url). Antes de la migración a la
+  // nube esta columna guardaba el nombre del archivo dentro de
+  // uploads/documentos/; los registros viejos conservan ese valor y siguen
+  // sirviéndose desde disco (ver README de la Task B3).
+  @Column({ length: 500 })
   ubicacion: string;
+
+  // 6b. Identificador del archivo dentro de Cloudinary, necesario para poder
+  // eliminarlo al reemplazarlo (Task B4). NULL en los registros anteriores a
+  // la migración, que viven en disco y no tienen public_id.
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  public_id: string | null;
 
   // 7. Público: visible para cualquier persona. Interno: solo dashboard
   // administrativo. 'Interno' por defecto para no exponer nada sin querer.
@@ -62,7 +71,16 @@ export class Documento {
   })
   estado: EstadoDocumento;
 
-  // 9. Fecha y hora automática en la que se cargó este documento/versión en MySQL
+  // 9. Fecha y hora automática en la que se cargó este documento/versión
   @CreateDateColumn()
   fecha_carga: Date;
+
+  // 10. Empleado que subió este documento/versión. Apunta a empleados (no a
+  // usuarios), igual que publicaciones.empleado — se resuelve desde el
+  // usuario autenticado vía EmpleadosService.buscarPorUsuarioId. Nullable:
+  // si esa cuenta no tiene empleado vinculado, o si el documento se creó
+  // antes de este cambio o por un script de migración de datos.
+  @ManyToOne(() => Empleado, { nullable: true })
+  @JoinColumn({ name: 'id_empleado' })
+  empleado: Empleado | null;
 }

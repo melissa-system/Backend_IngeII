@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { Publicacion } from './entities/publicacion.entity';
 import { CreatePublicacionDto } from './dto/create-publicacion.dto';
 import { UpdatePublicacionDto } from './dto/update-publicacion.dto';
+import { EmpleadosService } from '../empleados/empleados.service';
 
 // Límites de caracteres: deben coincidir con el largo de columna en la entidad
 const LIMITES = {
@@ -24,6 +25,7 @@ export class PublicacionesService {
   constructor(
     @InjectRepository(Publicacion)
     private readonly publicacionRepository: Repository<Publicacion>,
+    private readonly empleadosService: EmpleadosService,
   ) {}
 
   private validarLongitudes(datos: {
@@ -42,7 +44,10 @@ export class PublicacionesService {
     }
   }
 
-  async create(createPublicacionDto: CreatePublicacionDto): Promise<Publicacion> {
+  async create(
+    createPublicacionDto: CreatePublicacionDto,
+    usuarioId?: number,
+  ): Promise<Publicacion> {
     // 1. Validar campos obligatorios
     const camposObligatorios = ['titulo', 'contenido', 'categoria'];
     for (const campo of camposObligatorios) {
@@ -55,7 +60,13 @@ export class PublicacionesService {
     // 2. Validar longitud máxima de cada campo de texto
     this.validarLongitudes(createPublicacionDto);
 
-    // 3. Crear el registro. Si no se indica 'publicado', queda visible por defecto
+    // 3. Quién la crea: el empleado vinculado a la cuenta autenticada que
+    // hace la petición (si lo hay y si esa cuenta tiene empleado vinculado)
+    const empleado = usuarioId
+      ? await this.empleadosService.buscarPorUsuarioId(usuarioId)
+      : null;
+
+    // 4. Crear el registro. Si no se indica 'publicado', queda visible por defecto
     const nuevaPublicacion = this.publicacionRepository.create({
       titulo: createPublicacionDto.titulo,
       contenido: createPublicacionDto.contenido,
@@ -64,9 +75,10 @@ export class PublicacionesService {
         createPublicacionDto.publicado !== undefined
           ? createPublicacionDto.publicado
           : true,
+      empleado,
     });
 
-    // 4. Guardar en MySQL
+    // 5. Guardar en MySQL
     return await this.publicacionRepository.save(nuevaPublicacion);
   }
 

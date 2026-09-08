@@ -3,7 +3,10 @@ import {
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Empleado } from '../../empleados/entities/empleado.entity';
 
 // 1. Le decimos al ORM que esto se convertirá en la tabla 'averias' en MySQL
 @Entity('averias')
@@ -35,17 +38,35 @@ export class Averia {
   })
   estado: string;
 
-  // 7. Cédula y nombre de la persona que reporta el daño
+  // 7. Cédula y nombre de la persona que reporta el daño. El nombre se
+  // guarda dividido (nombre de pila + apellidos por separado) en vez de
+  // un solo string. apellido2 es nullable porque no toda persona tiene
+  // segundo apellido registrado.
   @Column()
   cedula_reportante: string;
 
   @Column()
   nombre_reportante: string;
 
+  @Column({ nullable: true })
+  apellido1_reportante: string;
+
+  @Column({ nullable: true })
+  apellido2_reportante: string;
+
   // 8. Fecha y hora automática en la que se registra el reporte en MySQL
   @CreateDateColumn()
   fecha_reporte: Date;
 
-  // NOTA: El campo fontanero_asignado_id lo agregaremos más adelante
-  // cuando hagamos las relaciones (FK) entre tablas.
+  // 9. Empleado responsable del caso (normalmente un fontanero, pero se
+  // nombra id_empleado para mantener el mismo criterio de autoría que
+  // publicaciones/documentos/configuración/solicitudes — cualquier miembro
+  // del personal podría quedar asignado, no solo fontaneros). NULL al crear
+  // el reporte: se completa después, cuando el personal administrativo
+  // asigna el caso al actualizar el estado (esa ruta de asignación todavía
+  // no existe — AveriasController solo tiene create/findAll — queda como
+  // tarea aparte).
+  @ManyToOne(() => Empleado, { nullable: true })
+  @JoinColumn({ name: 'id_empleado' })
+  empleado: Empleado | null;
 }

@@ -3,18 +3,19 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   ParseIntPipe,
+  Query,
   UseGuards,
   UseInterceptors,
   UploadedFile,
-  BadRequestException,
+  Request,
 } from '@nestjs/common';
+import type { RequestUser } from '../auth/strategies/jwt.strategy';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import { mkdirSync } from 'fs';
+import { memoryStorage } from 'multer';
 import { DocumentosService } from './documentos.service';
 import { CreateDocumentoDto } from './dto/create-documento.dto';
 import { UpdateDocumentoDto } from './dto/update-documento.dto';
@@ -22,86 +23,136 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/roles.enum';
+import { Public } from '../../common/decorators/public.decorator';
+import {
+  MAX_DOCUMENTO_FILE_SIZE,
+  multerFileFilterDocumento,
+  validarTamanoDocumento,
+} from './documento-upload.config';
 
-// Tamaño máximo permitido por archivo (10 MB)
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-
-// Tipos MIME permitidos: documentos de oficina, PDF e imágenes (para actas
-// o mediciones escaneadas/fotografiadas)
-const ALLOWED_MIME_TYPES = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'image/jpeg',
-  'image/png',
-];
-
-// --- Estrategia de almacenamiento físico de los archivos ---
-// Igual que los adjuntos de solicitudes de paja de agua: los archivos se
-// guardan en disco, dentro de uploads/documentos/, con un nombre único
-// (timestamp + sufijo aleatorio) para evitar colisiones y no depender del
-// nombre original que suba la persona usuaria. Ese nombre generado es lo que
-// se guarda en Documento.ubicacion, y main.ts expone la carpeta uploads/
-// completa como archivos estáticos, así que el archivo queda accesible en
-// /uploads/documentos/<nombre-generado>. No se usa almacenamiento en la
-// base de datos (BLOB) para no inflar las consultas ni los backups de MySQL.
+// --- Estrategia de almacenamiento de los archivos ---
+// Los archivos se reciben en MEMORIA (memoryStorage) y el service los sube a
+// Cloudinary, que devuelve la URL pública y el public_id. Ya no se escribe
+// nada en el disco del servidor: así los archivos sobreviven a reinicios y
+// redespliegues, y no dependen del almacenamiento local del hosting.
+//
+// Nota sobre guards: van por método (no a nivel de clase) porque este
+// controlador mezcla rutas con distinto nivel de acceso — administración
+// (solo admin), consulta para abonados (cualquier usuario autenticado) y
+// consulta pública para el landing (sin sesión). JwtAuthGuard no respeta
+// @Public() (ver el mismo criterio en publicaciones.controller.ts), así que
+// la única forma de dejar una ruta realmente pública es no aplicarle el
+// guard en absoluto.
 @Controller('documentos')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class DocumentosController {
   constructor(private readonly documentosService: DocumentosService) {}
 
-  @Post()
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
+  @Post()
   @UseInterceptors(
     FileInterceptor('archivo', {
-      storage: diskStorage({
-        destination: (_req, _file, cb) => {
-          const dir = join(process.cwd(), 'uploads', 'documentos');
-          mkdirSync(dir, { recursive: true });
-          cb(null, dir);
-        },
-        filename: (_req, file, cb) => {
-          const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-          const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-          cb(null, `${uniqueSuffix}${extname(safeName)}`);
-        },
-      }),
-      limits: { fileSize: MAX_FILE_SIZE },
-      fileFilter: (_req, file, cb) => {
-        if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-          cb(
-            new BadRequestException(
-              'Solo se permiten archivos PDF, Word, Excel o imágenes (JPG, PNG)',
-            ),
-            false,
-          );
-          return;
-        }
-        cb(null, true);
-      },
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_DOCUMENTO_FILE_SIZE },
+      fileFilter: multerFileFilterDocumento,
     }),
   )
   create(
     @Body() createDocumentoDto: CreateDocumentoDto,
+    @Request() req: { user?: RequestUser },
     @UploadedFile() archivo?: Express.Multer.File,
   ) {
-    return this.documentosService.create(createDocumentoDto, archivo);
+    validarTamanoDocumento(archivo);
+
+    return this.documentosService.create(
+      createDocumentoDto,
+      archivo,
+      req.user?.id,
+    );
   }
 
+  // POST /documentos/:id/version
+  // Nueva versión de un documento EXISTENTE (no crea uno nuevo): sube el
+  // archivo, inhabilita la versión vigente actual y crea la fila con
+  // version+1. Mismas reglas de formato/tamaño que la carga inicial (ver
+  // documento-upload.config.ts).
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Post(':id/version')
+  @UseInterceptors(
+    FileInterceptor('archivo', {
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_DOCUMENTO_FILE_SIZE },
+      fileFilter: multerFileFilterDocumento,
+    }),
+  )
+  agregarNuevaVersion(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: { user?: RequestUser },
+    @UploadedFile() archivo?: Express.Multer.File,
+  ) {
+    validarTamanoDocumento(archivo);
+
+    return this.documentosService.agregarNuevaVersion(
+      id,
+      archivo,
+      req.user?.id,
+    );
+  }
+
+  // Listado completo para el dashboard administrativo: vigentes e
+  // inhabilitados, de cualquier visibilidad. Admite ?tipo= (debe pertenecer
+  // al catálogo TipoDocumento, se valida en el service) y ?nombre=
+  // (búsqueda parcial, opcional) para poder ubicar un documento rápido
+  // dentro del repositorio.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   @Get()
-  @Roles(Role.ADMIN)
-  findAll() {
-    return this.documentosService.findAll();
+  findAll(@Query('tipo') tipo?: string, @Query('nombre') nombre?: string) {
+    return this.documentosService.findAll({ tipo, nombre });
   }
 
-  @Patch(':id')
+  // "Documentos oficiales": lo que ve un abonado (o cualquier usuario con
+  // sesión) desde su propio perfil. Sin @Roles: cualquier rol autenticado
+  // pasa el RolesGuard (ver roles.guard.ts, "si la ruta no especifica
+  // ningún rol, se permite el paso"). Solo documentos vigentes, sin
+  // importar si son 'Interno' o 'Público' — ambos son documentación
+  // oficial para un abonado ya identificado; 'Público' además se promociona
+  // aparte en Noticias (ver /documentos/publicos). Admite ?tipo= igual que
+  // el listado administrativo.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Get('oficiales')
+  findOficiales(@Query('tipo') tipo?: string) {
+    return this.documentosService.findOficiales(tipo);
+  }
+
+  // Consumida por el landing público (sección Noticias), para mostrar los
+  // documentos marcados como 'Público' junto con las publicaciones. Sin
+  // ningún guard: es la única forma de que quede realmente pública.
+  @Public()
+  @Get('publicos')
+  findPublicos() {
+    return this.documentosService.findPublicos();
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
+  @Patch(':id')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateDocumentoDto: UpdateDocumentoDto,
   ) {
     return this.documentosService.update(id, updateDocumentoDto);
+  }
+
+  // DELETE /documentos/:id
+  // Eliminación DEFINITIVA: borra el registro y el archivo de Cloudinary.
+  // Para dar de baja un documento conservando el historial, usar en su lugar
+  // PATCH /documentos/:id con estado 'Inhabilitado'.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.documentosService.remove(id);
   }
 }

@@ -3,11 +3,20 @@ import {
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Empleado } from '../../empleados/entities/empleado.entity';
 
 // Tabla dedicada a las solicitudes de paja de agua (nueva conexión).
 // Más adelante se podrán agregar otras tablas de solicitudes
 // (cambio de domicilio, traslado de medidor, etc.).
+//
+// IMPORTANTE: esta tabla sigue siendo un snapshot independiente de
+// abonados. Los datos del solicitante (nombre, cédula, tipo, teléfono,
+// correo, dirección, representante) se guardan acá tal cual llegan del
+// formulario público, SIN relación a abonados en ese momento — todavía
+// no existe ni el abonado ni el usuario cuando se llena la solicitud.
 @Entity('solicitud_paja_agua')
 export class SolicitudPajaAgua {
   @PrimaryGeneratedColumn()
@@ -50,12 +59,24 @@ export class SolicitudPajaAgua {
   @Column({ type: 'text', nullable: true })
   observaciones: string | null;
 
-  // Ruta del archivo adjunto guardado en el servidor (uploads/solicitudes)
-  @Column({ type: 'varchar', nullable: true })
+  // URL del archivo en Cloudinary (secure_url). Antes de la migración a la
+  // nube estas columnas guardaban el nombre del archivo en uploads/solicitudes;
+  // los registros viejos conservan ese valor y siguen sirviéndose desde disco
+  // (ver nota de compatibilidad en el README de la Task B3).
+  @Column({ type: 'varchar', length: 500, nullable: true })
   permisos_municipales_path: string | null;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'varchar', length: 500, nullable: true })
   carta_solicitud_path: string | null;
+
+  // Identificador del archivo dentro de Cloudinary. Se necesita para poder
+  // eliminarlo al reemplazarlo (Task B4). NULL en los registros anteriores
+  // a la migración, que viven en disco y no tienen public_id.
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  permisos_municipales_public_id: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  carta_solicitud_public_id: string | null;
 
   @Column({
     type: 'enum',
@@ -66,4 +87,15 @@ export class SolicitudPajaAgua {
 
   @CreateDateColumn()
   fecha_solicitud: Date;
+
+  // Empleado que revisó/procesó la solicitud (aprobó, rechazó o la marcó
+  // completada). NULL siempre por ahora: todavía no existe la ruta de
+  // revisión (SolicitudesController solo tiene create/findAll) — queda como
+  // tarea aparte, igual que la asignación en Averías. No confundir con
+  // "quién se convierte en abonado": eso no se registra acá (ver nota en
+  // Abonado.usuario) — este campo es autoría interna, mismo criterio que
+  // publicaciones/documentos/configuración/averías.
+  @ManyToOne(() => Empleado, { nullable: true })
+  @JoinColumn({ name: 'id_empleado' })
+  empleado: Empleado | null;
 }

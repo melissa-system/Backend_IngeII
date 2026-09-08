@@ -27,12 +27,14 @@ export class ActivationToken {
   @Column({ name: 'usuario_id' })
   usuario_id: number;
 
-  @Column({ type: 'timestamp' })
-  expires_at: Date;
+  // 'datetime' (no 'timestamp') + nullable: ver el comentario equivalente
+  // en password-reset-token.entity.ts.
+  @Column({ type: 'datetime', nullable: true })
+  expires_at: Date | null;
 
   // Fecha en que se usó el token para activar la cuenta. NULL = vigente y
   // no usado todavía. Evita que el mismo token active la cuenta dos veces.
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'datetime', nullable: true })
   used_at: Date | null;
 
   @CreateDateColumn()
