@@ -26,12 +26,12 @@ export class RefreshToken {
   @Column({ name: 'usuario_id' })
   usuario_id: number;
 
-  // 'datetime' (no 'timestamp'): ver el comentario equivalente en
-  // password-reset-token.entity.ts — evita que MySQL reinterprete el valor
-  // según el time_zone de la sesión. Con 7 días de vigencia este token
-  // absorbía el desfase sin notarse, pero tiene el mismo riesgo de fondo.
-  @Column({ type: 'datetime' })
-  expires_at: Date;
+  // 'datetime' (no 'timestamp') + nullable: ver el comentario equivalente
+  // en password-reset-token.entity.ts. Con 7 días de vigencia este token
+  // absorbía el desfase de zona horaria sin notarse, pero tenía el mismo
+  // riesgo de fondo (y fue el que de hecho volvió a fallar el ALTER).
+  @Column({ type: 'datetime', nullable: true })
+  expires_at: Date | null;
 
   // Fecha de revocación (logout o rotación). NULL = token vigente.
   @Column({ type: 'datetime', nullable: true })

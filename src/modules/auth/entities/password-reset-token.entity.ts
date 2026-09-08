@@ -36,8 +36,14 @@ export class PasswordResetToken {
   // 'datetime' guarda el valor literal, sin reinterpretación: combinado
   // con que la app siempre calcula expiresAt en UTC (Date.now()), queda
   // consistente con NOW() sin depender del time_zone de la sesión.
-  @Column({ type: 'datetime' })
-  expires_at: Date;
+  //
+  // nullable:true a propósito (aunque la app siempre lo llena al crear el
+  // token): synchronize:true hizo ADD COLUMN ... NOT NULL sobre esta tabla
+  // con filas existentes más de una vez, y MySQL no acepta un implícito
+  // '0000-00-00 00:00:00' como default para eso. Con nullable, ese ADD
+  // COLUMN nunca vuelve a fallar sin importar qué dispare el synchronize.
+  @Column({ type: 'datetime', nullable: true })
+  expires_at: Date | null;
 
   // Fecha en que se usó el token para cambiar la contraseña. NULL = vigente
   // y no usado todavía. La task de "confirmar reset" (pendiente) la llenará.
