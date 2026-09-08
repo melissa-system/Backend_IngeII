@@ -26,11 +26,15 @@ export class RefreshToken {
   @Column({ name: 'usuario_id' })
   usuario_id: number;
 
-  @Column({ type: 'timestamp' })
+  // 'datetime' (no 'timestamp'): ver el comentario equivalente en
+  // password-reset-token.entity.ts — evita que MySQL reinterprete el valor
+  // según el time_zone de la sesión. Con 7 días de vigencia este token
+  // absorbía el desfase sin notarse, pero tiene el mismo riesgo de fondo.
+  @Column({ type: 'datetime' })
   expires_at: Date;
 
   // Fecha de revocación (logout o rotación). NULL = token vigente.
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'datetime', nullable: true })
   revoked_at: Date | null;
 
   @CreateDateColumn()

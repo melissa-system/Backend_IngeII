@@ -27,12 +27,15 @@ export class ActivationToken {
   @Column({ name: 'usuario_id' })
   usuario_id: number;
 
-  @Column({ type: 'timestamp' })
+  // 'datetime' (no 'timestamp'): ver el comentario equivalente en
+  // password-reset-token.entity.ts — evita que MySQL reinterprete el valor
+  // según el time_zone de la sesión.
+  @Column({ type: 'datetime' })
   expires_at: Date;
 
   // Fecha en que se usó el token para activar la cuenta. NULL = vigente y
   // no usado todavía. Evita que el mismo token active la cuenta dos veces.
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'datetime', nullable: true })
   used_at: Date | null;
 
   @CreateDateColumn()

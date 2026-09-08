@@ -27,12 +27,21 @@ export class PasswordResetToken {
   @Column({ name: 'usuario_id' })
   usuario_id: number;
 
-  @Column({ type: 'timestamp' })
+  // 'datetime' (no 'timestamp'): las columnas TIMESTAMP de MySQL se
+  // reinterpretan según el time_zone de la SESIÓN al guardar y al leer,
+  // lo cual seguía provocando que este token (vigencia de solo 30 min)
+  // apareciera "expirado" casi de inmediato, aun con timezone:'Z' en la
+  // conexión (esa opción solo controla la conversión Date<->string de
+  // mysql2, no la reinterpretación que hace MySQL para TIMESTAMP).
+  // 'datetime' guarda el valor literal, sin reinterpretación: combinado
+  // con que la app siempre calcula expiresAt en UTC (Date.now()), queda
+  // consistente con NOW() sin depender del time_zone de la sesión.
+  @Column({ type: 'datetime' })
   expires_at: Date;
 
   // Fecha en que se usó el token para cambiar la contraseña. NULL = vigente
   // y no usado todavía. La task de "confirmar reset" (pendiente) la llenará.
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: 'datetime', nullable: true })
   used_at: Date | null;
 
   @CreateDateColumn()
