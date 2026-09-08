@@ -8,8 +8,10 @@ import {
     ParseIntPipe,
     Patch,
     Post,
+    Req,
     UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RolesService } from './roles.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -52,13 +54,17 @@ export class UsersController {
         );
     }
 
-    // Cambiar estado activo/inactivo (Task 6)
+    // Cambiar estado activo/inactivo (Task 6). No se puede uno mismo
+    // inhabilitar (ver AuthService.cambiarEstadoUsuario), por eso se manda
+    // el id de quien hace la petición.
     @Patch(':id/estado')
     async cambiarEstado(
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: CambiarEstadoUsuarioDto,
+        @Req() req: Request,
     ) {
-        return this.authService.cambiarEstadoUsuario(id, dto.isActive);
+        const { id: solicitanteId } = req.user as { id: number };
+        return this.authService.cambiarEstadoUsuario(id, dto.isActive, solicitanteId);
     }
 
     // Cambiar rol de un usuario (Task 6)

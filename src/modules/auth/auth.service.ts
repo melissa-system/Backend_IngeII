@@ -531,10 +531,14 @@ export class AuthService {
     });
   }
 
-  // Activar o Inhabilitar usuario y revocar sesiones activas si se desactiva
+  // Activar o Inhabilitar usuario y revocar sesiones activas si se desactiva.
+  // solicitanteId es el id de la cuenta que hace la petición (req.user.id):
+  // nadie puede inhabilitarse a sí mismo, para no quedarse sin forma de
+  // volver a activarse (perdería sus propias credenciales de acceso).
   async cambiarEstadoUsuario(
     usuarioId: number,
     isActive: boolean,
+    solicitanteId?: number,
   ): Promise<{
     id: number;
     email: string;
@@ -543,6 +547,12 @@ export class AuthService {
     isActive: boolean;
     createdAt: Date;
   }> {
+    if (!isActive && solicitanteId === usuarioId) {
+      throw new BadRequestException(
+        'No podés inhabilitar tu propia cuenta. Pedile a otro administrador que lo haga.',
+      );
+    }
+
     const user = await this.userRepository.findOne({
       where: { id: usuarioId },
       relations: { role: true },
