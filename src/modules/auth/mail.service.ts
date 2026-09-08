@@ -213,4 +213,81 @@ export class MailService {
       }),
     });
   }
+
+  // Notificación del resultado de una solicitud de "cambio de representante".
+  // Se envía al abonado solicitante y, si el nuevo representante registró su
+  // propio correo (distinto del de la cuenta), también a él.
+  async enviarCorreoResultadoCambioRepresentante(
+    destinatario: string,
+    correoNuevoRepresentante: string | null,
+    datos: {
+      tipo: string;
+      codigo: string;
+      estadoResultado: 'aprobado' | 'rechazado';
+      motivo?: string | null;
+      nombreNuevoRepresentante: string;
+    },
+  ): Promise<void> {
+    const esAprobada = datos.estadoResultado === 'aprobado';
+    const asuntoBase = esAprobada ? 'aprobada' : 'rechazada';
+
+    const parrafosSolicitante = esAprobada
+      ? [
+          `Tu solicitud de <strong>${datos.tipo}</strong> con código <strong>${datos.codigo}</strong> fue <strong>aprobada</strong>.`,
+          `Desde ahora, <strong>${datos.nombreNuevoRepresentante}</strong> queda registrado como representante legal de tu cuenta.`,
+        ]
+      : [
+          `Tu solicitud de <strong>${datos.tipo}</strong> con código <strong>${datos.codigo}</strong> fue <strong>rechazada</strong>.`,
+          datos.motivo
+            ? `Motivo del rechazo: ${datos.motivo}`
+            : 'Si tenés dudas, contactanos en las oficinas de la ASADA.',
+        ];
+
+    await this.transporter.sendMail({
+      from:
+        this.configService.get<string>('EMAIL_FROM') ??
+        'no-reply@asada.local',
+      to: destinatario,
+      subject: `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} ${asuntoBase}`,
+      html: this.plantillaBase({
+        tituloEncabezado: 'Resultado de tu solicitud',
+        saludo: 'Hola,',
+        parrafos: parrafosSolicitante,
+        notaFinal: 'Gracias por usar el Sistema de Información de Abonados (SIAPB).',
+      }),
+    });
+
+    // Segundo correo: el nuevo representante, si registró su propio correo y
+    // es distinto del correo de la cuenta.
+    if (
+      correoNuevoRepresentante?.trim() &&
+      correoNuevoRepresentante.trim().toLowerCase() !==
+        destinatario.toLowerCase()
+    ) {
+      const parrafosNuevoRep = esAprobada
+        ? [
+            `Se te ha registrado como <strong>nuevo representante legal</strong> de una cuenta de <strong>${datos.tipo}</strong> (solicitud <strong>${datos.codigo}</strong> aprobada).`,
+          ]
+        : [
+            `La solicitud de cambio de representante en la que tu nombre figuraba como nuevo representante (código <strong>${datos.codigo}</strong>) fue <strong>rechazada</strong>.`,
+            datos.motivo
+              ? `Motivo del rechazo: ${datos.motivo}`
+              : 'Si tenés dudas, contactá a las oficinas de la ASADA.',
+          ];
+
+      await this.transporter.sendMail({
+        from:
+          this.configService.get<string>('EMAIL_FROM') ??
+          'no-reply@asada.local',
+        to: correoNuevoRepresentante.trim(),
+        subject: `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} ${asuntoBase}`,
+        html: this.plantillaBase({
+          tituloEncabezado: 'Resultado de tu solicitud',
+          saludo: 'Hola,',
+          parrafos: parrafosNuevoRep,
+          notaFinal: 'Gracias por usar el Sistema de Información de Abonados (SIAPB).',
+        }),
+      });
+    }
+  }
 }

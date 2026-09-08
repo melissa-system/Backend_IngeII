@@ -889,7 +889,10 @@ export class AuthService {
     // Perfil.tsx antes de este cambio.
     const [empleado, abonado] = await Promise.all([
       this.empleadoRepository.findOne({ where: { usuario: { id: usuarioId } } }),
-      this.abonadoRepository.findOne({ where: { usuario: { id: usuarioId } } }),
+      this.abonadoRepository.findOne({
+        where: { usuario: { id: usuarioId } },
+        relations: { juridico: true },
+      }),
     ]);
 
     const vinculos = {
@@ -943,6 +946,17 @@ export class AuthService {
         direccion: abonado.direccion,
         puesto: null,
         tipo_asociacion: 'abonado' as const,
+        // Datos del representante legal (solo abonados jurídicos). Los usa la
+        // vista de "cambio de representante" para mostrar el representante
+        // actual en solo lectura (análogo a perfil.direccion en domicilio).
+        juridico: abonado.juridico
+          ? {
+              nombre_representante_legal: abonado.juridico.nombre_representante_legal,
+              cedula_representante: abonado.juridico.cedula_representante,
+              representante_direccion: abonado.juridico.representante_direccion,
+              representante_correo: abonado.juridico.representante_correo,
+            }
+          : null,
         vinculos,
       };
     }

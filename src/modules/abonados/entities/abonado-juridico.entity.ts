@@ -26,4 +26,15 @@ export class AbonadoJuridico {
   // completarlo a mano.
   @Column({ nullable: true })
   cedula_representante: string | null;
+
+  // Dirección del representante legal. Se completa con el flujo de "cambio
+  // de representante" (solicitud aprobada) o a mano; NULL para los registros
+  // anteriores a que existiera el campo.
+  @Column({ nullable: true })
+  representante_direccion: string | null;
+
+  // Correo del representante legal (adónde llegan las notificaciones de
+  // solicitudes aprobadas/rechazadas).
+  @Column({ nullable: true })
+  representante_correo: string | null;
 }
