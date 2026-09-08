@@ -8,6 +8,11 @@ import * as nodemailer from 'nodemailer';
 export class MailService {
   private readonly transporter: nodemailer.Transporter;
 
+  // Mismo azul de marca que el sidebar/header del dashboard
+  // (--color-primary-700 en Frontend_IngeII/src/index.css), para que el
+  // correo se sienta parte del mismo sistema y no un template genérico.
+  private static readonly COLOR_MARCA = '#073763';
+
   constructor(private readonly configService: ConfigService) {
     this.transporter = nodemailer.createTransport({
       host: this.configService.get<string>('EMAIL_HOST'),
@@ -20,6 +25,80 @@ export class MailService {
     });
   }
 
+  // Arma el HTML común a todos los correos (encabezado con el nombre de la
+  // ASADA, tarjeta blanca centrada, botón de acción centrado y pie con
+  // aviso legal) para que no queden inconsistentes entre sí. Usa tablas y
+  // estilos inline a propósito: es lo único que Gmail/Outlook/Apple Mail
+  // renderizan de forma confiable, un <link>/<style> externo no sirve acá.
+  private plantillaBase(datos: {
+    tituloEncabezado?: string;
+    saludo: string;
+    parrafos: string[];
+    boton?: { texto: string; url: string };
+    notaFinal?: string;
+  }): string {
+    const color = MailService.COLOR_MARCA;
+    const año = new Date().getFullYear();
+
+    const parrafosHtml = datos.parrafos
+      .map(
+        (p) =>
+          `<p style="margin:0 0 16px;color:#374151;font-size:15px;line-height:1.6;">${p}</p>`,
+      )
+      .join('');
+
+    const botonHtml = datos.boton
+      ? `
+        <table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" style="margin:8px auto 24px;">
+          <tr>
+            <td align="center" bgcolor="${color}" style="border-radius:8px;">
+              <a href="${datos.boton.url}" target="_blank" style="display:inline-block;padding:14px 36px;color:#ffffff;font-size:15px;font-weight:bold;text-decoration:none;border-radius:8px;font-family:Arial, Helvetica, sans-serif;">${datos.boton.texto}</a>
+            </td>
+          </tr>
+        </table>`
+      : '';
+
+    return `
+<!DOCTYPE html>
+<html lang="es">
+  <body style="margin:0;padding:0;background-color:#f3f4f6;font-family:Arial, Helvetica, sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f3f4f6;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
+            <tr>
+              <td style="background-color:${color};padding:28px 32px;text-align:center;">
+                <p style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;letter-spacing:0.5px;font-family:Arial, Helvetica, sans-serif;">ASADA Pueblo Nuevo</p>
+                <p style="margin:6px 0 0;color:#cfe0f0;font-size:12px;font-family:Arial, Helvetica, sans-serif;">${
+                  datos.tituloEncabezado ?? 'Sistema de Información de Abonados'
+                }</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:32px;">
+                <p style="margin:0 0 16px;color:#111827;font-size:15px;line-height:1.6;">${datos.saludo}</p>
+                ${parrafosHtml}
+                ${botonHtml}
+                ${
+                  datos.notaFinal
+                    ? `<p style="margin:24px 0 0;color:#9ca3af;font-size:12px;line-height:1.5;">${datos.notaFinal}</p>`
+                    : ''
+                }
+              </td>
+            </tr>
+            <tr>
+              <td style="background-color:#f9fafb;padding:16px 32px;text-align:center;border-top:1px solid #e5e7eb;">
+                <p style="margin:0;color:#9ca3af;font-size:11px;font-family:Arial, Helvetica, sans-serif;">© ${año} ASADA Pueblo Nuevo. Todos los derechos reservados.</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+  }
+
   async enviarCorreoResetPassword(
     destinatario: string,
     url: string,
@@ -30,12 +109,17 @@ export class MailService {
         'no-reply@asada.local',
       to: destinatario,
       subject: 'ASADA Pueblo Nuevo — Recuperación de contraseña',
-      html: `
-        <p><strong>ASADA Pueblo Nuevo</strong></p>
-        <p>Recibimos una solicitud para restablecer tu contraseña.</p>
-        <p><a href="${url}">Haz clic aquí para restablecerla</a></p>
-        <p>Si no solicitaste este cambio, puedes ignorar este correo.</p>
-      `,
+      html: this.plantillaBase({
+        tituloEncabezado: 'Recuperación de contraseña',
+        saludo: 'Hola,',
+        parrafos: [
+          'Recibimos una solicitud para restablecer la contraseña de tu cuenta en el Sistema de Información de Abonados (SIAPB).',
+          'Hacé clic en el siguiente botón para crear una nueva contraseña. Por tu seguridad, este enlace vence en poco tiempo.',
+        ],
+        boton: { texto: 'Restablecer mi contraseña', url },
+        notaFinal:
+          'Si no solicitaste este cambio, podés ignorar este correo: tu contraseña actual seguirá funcionando sin problema.',
+      }),
     });
   }
 
@@ -49,13 +133,17 @@ export class MailService {
         'no-reply@asada.local',
       to: destinatario,
       subject: 'ASADA Pueblo Nuevo — Bienvenido, activa tu cuenta',
-      html: `
-        <p><strong>ASADA Pueblo Nuevo</strong></p>
-        <p>¡Gracias por registrarte!</p>
-        <p>Para activar tu cuenta, haz clic en el siguiente enlace:</p>
-        <p><a href="${url}">Activar mi cuenta</a></p>
-        <p>Si no creaste esta cuenta, puedes ignorar este correo.</p>
-      `,
+      html: this.plantillaBase({
+        tituloEncabezado: 'Activación de cuenta',
+        saludo: '¡Hola!',
+        parrafos: [
+          'Gracias por registrarte en el Sistema de Información de Abonados (SIAPB) de la ASADA Pueblo Nuevo.',
+          'Para activar tu cuenta y empezar a usarla, hacé clic en el siguiente botón:',
+        ],
+        boton: { texto: 'Activar mi cuenta', url },
+        notaFinal:
+          'Si no creaste esta cuenta, podés ignorar este correo sin problema.',
+      }),
     });
   }
 
@@ -73,13 +161,17 @@ export class MailService {
         'no-reply@asada.local',
       to: destinatario,
       subject: 'ASADA Pueblo Nuevo — Accede a tu cuenta',
-      html: `
-        <p><strong>ASADA Pueblo Nuevo</strong></p>
-        <p>Se registró tu cuenta en el Sistema de Información de Abonados (SIAPB).</p>
-        <p>Para ingresar por primera vez, primero debes crear tu contraseña usando el siguiente enlace:</p>
-        <p><a href="${url}">Crear mi contraseña</a></p>
-        <p>Si no reconoces esta cuenta, puedes ignorar este correo.</p>
-      `,
+      html: this.plantillaBase({
+        tituloEncabezado: 'Acceso a tu cuenta',
+        saludo: 'Hola,',
+        parrafos: [
+          'Se registró una cuenta a tu nombre en el Sistema de Información de Abonados (SIAPB) de la ASADA Pueblo Nuevo.',
+          'Para ingresar por primera vez, primero tenés que crear tu contraseña haciendo clic en el siguiente botón:',
+        ],
+        boton: { texto: 'Crear mi contraseña', url },
+        notaFinal:
+          'Si no reconocés esta cuenta, podés ignorar este correo sin problema.',
+      }),
     });
   }
 
@@ -104,20 +196,21 @@ export class MailService {
       subject: esAprobada
         ? `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} aprobada`
         : `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} rechazada`,
-      html: `
-        <p><strong>ASADA Pueblo Nuevo</strong></p>
-        <p>Tu solicitud de <strong>${datos.tipo}</strong> con código <strong>${datos.codigo}</strong> fue ${
-          esAprobada ? 'aprobada' : 'rechazada'
-        }.</p>
-        ${
+      html: this.plantillaBase({
+        tituloEncabezado: 'Resultado de tu solicitud',
+        saludo: 'Hola,',
+        parrafos: [
+          `Tu solicitud de <strong>${datos.tipo}</strong> con código <strong>${datos.codigo}</strong> fue <strong>${
+            esAprobada ? 'aprobada' : 'rechazada'
+          }</strong>.`,
           esAprobada
-            ? '<p>Ya puedes ver los cambios actualizados en tu perfil de abonado.</p>'
+            ? 'Ya podés ver los cambios actualizados en tu perfil de abonado.'
             : datos.motivo
-              ? `<p>Motivo del rechazo: ${datos.motivo}</p>`
-              : '<p>Si tenés dudas, contactanos en las oficinas de la ASADA.</p>'
-        }
-        <p>Gracias por usar el Sistema de Información de Abonados (SIAPB).</p>
-      `,
+              ? `Motivo del rechazo: ${datos.motivo}`
+              : 'Si tenés dudas, contactanos en las oficinas de la ASADA.',
+        ],
+        notaFinal: 'Gracias por usar el Sistema de Información de Abonados (SIAPB).',
+      }),
     });
   }
 }
