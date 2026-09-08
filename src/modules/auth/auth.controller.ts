@@ -30,6 +30,7 @@ import { ConfirmarResetPasswordDto } from './dto/confirmar-reset-password.dto';
 import { RegistroDto } from './dto/registro.dto';
 import { VerificarEmailDto } from './dto/verificar-email.dto';
 import { ActualizarPerfilDto } from './dto/actualizar-perfil.dto';
+import { CambiarPerfilDto } from './dto/cambiar-perfil.dto';
 import { LocalAuthGuard } from '../../common/guards/local-auth.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
@@ -196,6 +197,17 @@ export class AuthController {
   ) {
     const { id } = req.user as { id: number };
     return this.authService.actualizarPerfil(id, dto);
+  }
+
+  // POST /auth/cambiar-perfil
+  // Selector de perfil (Sidebar/DashboardHeader): re-emite el Access Token
+  // con el rol del vínculo elegido (Abonado/Empleado), verificado en el
+  // service. No toca el Refresh Token ni el rol real de la cuenta.
+  @UseGuards(JwtAuthGuard)
+  @Post('cambiar-perfil')
+  async cambiarPerfil(@Req() req: Request, @Body() dto: CambiarPerfilDto) {
+    const { id } = req.user as { id: number };
+    return this.authService.cambiarPerfilToken(id, dto.perfil);
   }
 
   // PATCH /auth/foto

@@ -77,6 +77,57 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
+  /**
+   * Selector de perfil (ver Sidebar/DashboardHeader del frontend): re-emite
+   * el access token con el rol del vínculo elegido, verificado acá (nunca
+   * se confía en lo que mande el cliente). No toca el refresh token ni el
+   * role_id real de la cuenta — es solo el rol "activo" de esta sesión, así
+   * que /auth/refresh siempre vuelve a emitir con el rol base real (el
+   * frontend debe volver a llamar este endpoint tras cada refresh si quiere
+   * mantenerse en el perfil no-base).
+   */
+  async cambiarPerfilToken(
+    usuarioId: number,
+    perfil: 'base' | 'abonado' | 'empleado',
+  ): Promise<{ accessToken: string }> {
+    const user = await this.userRepository.findOne({
+      where: { id: usuarioId },
+      relations: { role: true },
+    });
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Sesión inválida');
+    }
+
+    let rolActivo: string = user.role.name;
+
+    if (perfil === 'abonado') {
+      const abonado = await this.abonadoRepository.findOne({
+        where: { usuario: { id: usuarioId } },
+      });
+      if (!abonado) {
+        throw new BadRequestException('Esta cuenta no tiene un Abonado vinculado');
+      }
+      rolActivo = Role.ABONADO;
+    } else if (perfil === 'empleado') {
+      const empleado = await this.empleadoRepository.findOne({
+        where: { usuario: { id: usuarioId } },
+      });
+      if (!empleado) {
+        throw new BadRequestException('Esta cuenta no tiene un Empleado vinculado');
+      }
+      const rol = AuthService.rolParaPuesto(empleado.puesto);
+      if (!rol) {
+        throw new BadRequestException(
+          `El puesto "${empleado.puesto}" del Empleado vinculado no tiene un rol asignado`,
+        );
+      }
+      rolActivo = rol;
+    }
+
+    const payload: JwtPayload = { sub: user.id, role: rolActivo };
+    return { accessToken: this.jwtService.sign(payload) };
+  }
+
   private async guardarRefreshToken(
     tokenPlano: string,
     usuarioId: number,
