@@ -10,6 +10,7 @@ export const EnvConfig = () => ({
   JWT_ACCESS_EXPIRES: process.env.JWT_ACCESS_EXPIRES,
   JWT_REFRESH_EXPIRES_DAYS: process.env.JWT_REFRESH_EXPIRES_DAYS,
   FRONTEND_URL: process.env.FRONTEND_URL,
+  PUBLIC_APP_URL: process.env.PUBLIC_APP_URL,
 
   EMAIL_HOST: process.env.EMAIL_HOST,
   EMAIL_PORT: process.env.EMAIL_PORT,
