@@ -53,8 +53,9 @@ describe('UsersController', () => {
               ),
             cambiarEstadoUsuario: jest
               .fn()
-              .mockImplementation((id: number, isActive: boolean) =>
-                Promise.resolve({ ...mockUsers[0], id, isActive }),
+              .mockImplementation(
+                (id: number, isActive: boolean, _solicitanteId?: number) =>
+                  Promise.resolve({ ...mockUsers[0], id, isActive }),
               ),
             cambiarRolUsuario: jest
               .fn()
@@ -125,9 +126,24 @@ describe('UsersController', () => {
   });
 
   describe('cambiarEstado', () => {
-    it('debe actualizar el estado de un usuario', async () => {
-      const result = await controller.cambiarEstado(1, { isActive: false });
-      expect(authService.cambiarEstadoUsuario).toHaveBeenCalledWith(1, false);
+    // req.user.id (id de quien hace la petición) se manda como tercer
+    // argumento para que el service pueda rechazar la auto-inhabilitación
+    // (ver AuthService.cambiarEstadoUsuario). Acá el solicitante (99) es
+    // distinto del usuario objetivo (1) — caso normal, un admin inhabilita
+    // a otro usuario.
+    const mockReq = { user: { id: 99 } } as any;
+
+    it('debe actualizar el estado de un usuario y reenviar el id del solicitante', async () => {
+      const result = await controller.cambiarEstado(
+        1,
+        { isActive: false },
+        mockReq,
+      );
+      expect(authService.cambiarEstadoUsuario).toHaveBeenCalledWith(
+        1,
+        false,
+        99,
+      );
       expect(result.isActive).toBe(false);
     });
   });
