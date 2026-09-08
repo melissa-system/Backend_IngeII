@@ -384,6 +384,7 @@ export class AuthService {
     Array<{
       id: number;
       email: string;
+      username: string | null;
       role: string;
       role_id: number;
       isActive: boolean;
@@ -450,6 +451,7 @@ export class AuthService {
       return {
         id: u.id,
         email: u.email,
+        username: u.username,
         role: u.role?.name ?? 'Sin rol',
         role_id: u.role?.id,
         isActive: u.isActive,
@@ -823,6 +825,7 @@ export class AuthService {
       return {
         id: user.id,
         email: user.email,
+        username: user.username,
         role: user.role.name,
         foto_url: user.foto_url,
         nombre: empleado.nombre,
@@ -840,6 +843,7 @@ export class AuthService {
       return {
         id: user.id,
         email: user.email,
+        username: user.username,
         role: user.role.name,
         foto_url: user.foto_url,
         nombre: abonado.nombre,
@@ -858,6 +862,7 @@ export class AuthService {
     return {
       id: user.id,
       email: user.email,
+      username: user.username,
       role: user.role.name,
       foto_url: user.foto_url,
       nombre: null,
@@ -916,6 +921,20 @@ export class AuthService {
       }
 
       user.email = dto.email;
+      await this.userRepository.save(user);
+    }
+
+    // Nombre de usuario para mostrar (reemplaza el derivado del correo en
+    // el sidebar/header/lista de Usuarios una vez que se define).
+    if (dto.username && dto.username !== user.username) {
+      const existe = await this.userRepository.findOne({
+        where: { username: dto.username },
+      });
+      if (existe) {
+        throw new BadRequestException('Ese nombre de usuario ya está en uso');
+      }
+
+      user.username = dto.username;
       await this.userRepository.save(user);
     }
 

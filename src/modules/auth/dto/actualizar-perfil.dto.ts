@@ -16,4 +16,12 @@ export class ActualizarPerfilDto {
   @IsString()
   @MaxLength(150)
   email?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^[a-zA-Z0-9._-]{3,30}$/, {
+    message:
+      'El nombre de usuario debe tener entre 3 y 30 caracteres (letras, números, ".", "_" o "-", sin espacios)',
+  })
+  username?: string;
 }

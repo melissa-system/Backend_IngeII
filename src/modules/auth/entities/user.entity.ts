@@ -10,6 +10,12 @@ export class User {
   @Column({ unique: true })
   email: string;
 
+  // Nombre para mostrar en vez del correo (sidebar, header, lista de
+  // Usuarios). Opcional: mientras no se defina, el frontend sigue
+  // derivándolo del correo (ver mapearUsuario en AuthContext.tsx).
+  @Column({ type: 'varchar', length: 30, unique: true, nullable: true })
+  username: string | null;
+
   @Column()
   password: string;
 
