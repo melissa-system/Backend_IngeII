@@ -13,6 +13,9 @@ import { User } from '../auth/entities/user.entity';
 import { HistorialAbonado } from '../abonados/entities/historial-abonado.entity';
 import { CloudinaryModule } from '../../config/cloudinary.module';
 import { AuthModule } from '../auth/auth.module';
+import { SolicitudCambioMedidor } from './entities/solicitud-cambio-medidor.entity';
+import { SolicitudesCambioMedidorController } from './solicitudes.cambio-medidor.controller';
+import { SolicitudesCambioMedidorService } from './solicitudes.cambio-medidor.service';
 
 @Module({
   // AuthModule se importa para poder inyectar MailService (notificación por
@@ -23,6 +26,7 @@ import { AuthModule } from '../auth/auth.module';
       SolicitudPajaAgua,
       Solicitud,
       SolicitudCambioDomicilio,
+      SolicitudCambioMedidor,
       Abonado,
       Empleado,
       User,
@@ -31,8 +35,20 @@ import { AuthModule } from '../auth/auth.module';
     CloudinaryModule,
     AuthModule,
   ],
-  controllers: [SolicitudesController, CambioDomicilioController],
-  providers: [SolicitudesService, CambioDomicilioService],
-  exports: [SolicitudesService, CambioDomicilioService],
+  controllers: [
+    SolicitudesController,
+    CambioDomicilioController,
+    SolicitudesCambioMedidorController,
+  ],
+  providers: [
+    SolicitudesService,
+    CambioDomicilioService,
+    SolicitudesCambioMedidorService,
+  ],
+  exports: [
+    SolicitudesService,
+    CambioDomicilioService,
+    SolicitudesCambioMedidorService,
+  ],
 })
 export class SolicitudesModule {}
