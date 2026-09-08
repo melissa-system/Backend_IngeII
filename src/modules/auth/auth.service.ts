@@ -245,6 +245,25 @@ export class AuthService {
     return createHash('sha256').update(tokenPlano).digest('hex');
   }
 
+  // Mismo mapeo que EmpleadosService.rolParaPuesto (privado ahí), pero sin
+  // lanzar excepción: acá solo sirve para informar al selector de perfil
+  // qué rol vería el usuario si cambia a su vínculo de Empleado, así que un
+  // puesto sin mapear simplemente no ofrece esa opción (null).
+  private static rolParaPuesto(puesto: string): Role | null {
+    switch (puesto) {
+      case 'Junta Directiva':
+        return Role.SUPER_ADMIN;
+      case 'Administrador':
+        return Role.ADMIN;
+      case 'Fontanero':
+        return Role.FONTANERO;
+      case 'Abonado':
+        return Role.ABONADO;
+      default:
+        return null;
+    }
+  }
+
   async confirmarResetPassword(
     tokenPlano: string,
     nuevaPassword: string,
@@ -814,7 +833,16 @@ export class AuthService {
 
     const vinculos = {
       empleado: empleado
-        ? { id: empleado.id, nombre: empleado.nombre, puesto: empleado.puesto }
+        ? {
+            id: empleado.id,
+            nombre: empleado.nombre,
+            puesto: empleado.puesto,
+            // Rol que le correspondería si se viera con este perfil (ver
+            // selector de perfil del Sidebar) — null si el puesto no está
+            // mapeado a un rol (mismo criterio que EmpleadosService al
+            // crear la cuenta de acceso, solo que sin lanzar error acá).
+            rol: AuthService.rolParaPuesto(empleado.puesto),
+          }
         : null,
       abonado: abonado
         ? { id: abonado.id, nombre: abonado.nombre, numero_abonado: abonado.numero_abonado }
