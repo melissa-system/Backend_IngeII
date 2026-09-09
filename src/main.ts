@@ -11,6 +11,13 @@ async function bootstrap() {
   const { AppModule } = await import('./app.module');
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
+  // Render (y cualquier host detrás de un proxy/load balancer) entrega las
+  // peticiones a través de un proxy interno: sin esto, Express ve siempre la
+  // IP de ese proxy en vez de la IP real del cliente, y el límite por IP del
+  // ThrottlerGuard (login, reset-password) termina compartido entre TODOS
+  // los usuarios de la app en vez de aplicarse a cada quien por separado.
+  app.set('trust proxy', 1);
+
   // Habilitar CORS solo para los frontends conocidos (con credenciales,
   // necesario para que el navegador envíe la cookie httpOnly del Refresh
   // Token). FRONTEND_URL acepta una lista separada por comas para poder
