@@ -25,6 +25,14 @@ import type { RequestUser } from '../auth/strategies/jwt.strategy';
 export class AbonadosController {
   constructor(private readonly abonadosService: AbonadosService) {}
 
+  // Resumen personal del abonado logueado: datos personales, conteo de
+  // solicitudes y averías, y las 5 más recientes de cada una.
+  @Get('mi-resumen')
+  @Roles(Role.ABONADO)
+  obtenerMiResumen(@Request() req: { user?: RequestUser }) {
+    return this.abonadosService.obtenerMiResumen(req.user!.id);
+  }
+
   @Post()
   @Roles(Role.ADMIN)
   create(@Body() createAbonadoDto: CreateAbonadoDto) {
