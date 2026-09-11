@@ -128,6 +128,23 @@ export class AuthService {
     return { accessToken: this.jwtService.sign(payload) };
   }
 
+  // URL base para links que van DENTRO de correos (reset password,
+  // bienvenida, acceso abonado). FRONTEND_URL puede traer varias URLs
+  // separadas por coma desde que soporta CORS multi-origen (ver main.ts:
+  // dev local + sitio publicado a la vez) — un link de correo no puede ser
+  // una lista, así que se usa PUBLIC_APP_URL si está definida (la URL
+  // pública real, ej. Netlify) y si no, el primer valor de FRONTEND_URL
+  // (compatibilidad con instalaciones que todavía no la configuraron).
+  private urlFrontendPublica(): string {
+    const publica = this.configService.get<string>('PUBLIC_APP_URL');
+    if (publica?.trim()) return publica.trim();
+
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') ??
+      'http://localhost:5173';
+    return frontendUrl.split(',')[0].trim();
+  }
+
   private async guardarRefreshToken(
     tokenPlano: string,
     usuarioId: number,
@@ -276,9 +293,7 @@ export class AuthService {
       }),
     );
 
-    const url = `${this.configService.get<string>(
-      'FRONTEND_URL',
-    )}/restablecer-password?token=${tokenPlano}`;
+    const url = `${this.urlFrontendPublica()}/restablecer-password?token=${tokenPlano}`;
 
     try {
       await this.mailService.enviarCorreoResetPassword(user.email, url);
@@ -402,9 +417,7 @@ export class AuthService {
       }),
     );
 
-    const url = `${this.configService.get<string>(
-      'FRONTEND_URL',
-    )}/activar-cuenta?token=${tokenPlano}`;
+    const url = `${this.urlFrontendPublica()}/activar-cuenta?token=${tokenPlano}`;
 
     try {
       await this.mailService.enviarCorreoBienvenida(user.email, url);
@@ -761,9 +774,7 @@ export class AuthService {
       }),
     );
 
-    const url = `${this.configService.get<string>(
-      'FRONTEND_URL',
-    )}/restablecer-password?token=${tokenPlano}`;
+    const url = `${this.urlFrontendPublica()}/restablecer-password?token=${tokenPlano}`;
 
     try {
       await this.mailService.enviarCorreoAccesoAbonado(
@@ -844,9 +855,7 @@ export class AuthService {
       }),
     );
 
-    const url = `${this.configService.get<string>(
-      'FRONTEND_URL',
-    )}/restablecer-password?token=${tokenPlano}`;
+    const url = `${this.urlFrontendPublica()}/restablecer-password?token=${tokenPlano}`;
 
     try {
       await this.mailService.enviarCorreoAccesoAbonado(

@@ -11,10 +11,28 @@ async function bootstrap() {
   const { AppModule } = await import('./app.module');
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  // Habilitar CORS solo para el frontend (puerto 5173) y con credenciales,
-  // necesario para que el navegador envíe la cookie httpOnly del Refresh Token.
+  // Render (y cualquier host detrás de un proxy/load balancer) entrega las
+  // peticiones a través de un proxy interno: sin esto, Express ve siempre la
+  // IP de ese proxy en vez de la IP real del cliente, y el límite por IP del
+  // ThrottlerGuard (login, reset-password) termina compartido entre TODOS
+  // los usuarios de la app en vez de aplicarse a cada quien por separado.
+  app.set('trust proxy', 1);
+
+  // Habilitar CORS solo para los frontends conocidos (con credenciales,
+  // necesario para que el navegador envíe la cookie httpOnly del Refresh
+  // Token). FRONTEND_URL acepta una lista separada por comas para poder
+  // tener a la vez el dev local (localhost:5173) y el sitio ya publicado
+  // (ej. Netlify) sin tener que elegir uno — si no se define, cae solo al
+  // local de siempre.
+  const origenesPermitidos = (
+    process.env.FRONTEND_URL ?? 'http://localhost:5173'
+  )
+    .split(',')
+    .map((url) => url.trim())
+    .filter(Boolean);
+
   app.enableCors({
-    origin: process.env.FRONTEND_URL ?? 'http://localhost:5173',
+    origin: origenesPermitidos,
     credentials: true,
     // Sin esto el navegador oculta Retry-After (no es un header CORS simple)
     // y el frontend no podría mostrar el contador regresivo del bloqueo.

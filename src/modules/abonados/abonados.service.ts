@@ -11,6 +11,8 @@ import { CreateAbonadoDto } from './dto/create-abonado.dto';
 import { UpdateAbonadoDto } from './dto/update-abonado.dto';
 import { User } from '../auth/entities/user.entity';
 import { Empleado } from '../empleados/entities/empleado.entity';
+import { Solicitud } from '../solicitudes/entities/solicitud.entity';
+import { Averia } from '../averias/entities/averia.entity';
 import { AuthService } from '../auth/auth.service';
 
 // Forma "plana" que consume el frontend: junta la fila base con los campos
@@ -53,6 +55,10 @@ export class AbonadosService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(Empleado)
     private readonly empleadoRepository: Repository<Empleado>,
+    @InjectRepository(Solicitud)
+    private readonly solicitudRepository: Repository<Solicitud>,
+    @InjectRepository(Averia)
+    private readonly averiaRepository: Repository<Averia>,
     private readonly authService: AuthService,
   ) {}
 
@@ -584,5 +590,51 @@ export class AbonadosService {
       where: { abonado: { id: abonado.id } },
       order: { fecha: 'DESC' },
     });
+  }
+
+  // Resumen personalizado para la vista del abonado: datos personales,
+  // conteo de solicitudes y averías, y las 5 más recientes de cada una.
+  // Las averías se vinculan por cédula (no hay FK directa).
+  async obtenerMiResumen(usuarioId: number) {
+    const abonado = await this.abonadoRepository.findOne({
+      where: { usuario: { id: usuarioId } },
+      relations: RELACIONES_DETALLE,
+    });
+    if (!abonado) {
+      throw new NotFoundException('No se encontró un abonado vinculado a esta cuenta');
+    }
+
+    const [
+      totalSolicitudes,
+      totalAverias,
+      solicitudesRecientes,
+      averiasRecientes,
+    ] = await Promise.all([
+      this.solicitudRepository.count({
+        where: { abonado: { id: abonado.id } },
+      }),
+      this.averiaRepository.count({
+        where: { cedula_reportante: abonado.cedula },
+      }),
+      this.solicitudRepository.find({
+        where: { abonado: { id: abonado.id } },
+        order: { fecha_creacion: 'DESC' },
+        take: 5,
+        select: { id: true, codigo_solicitud: true, tipo_solicitud: true, estado: true, fecha_creacion: true },
+      }),
+      this.averiaRepository.find({
+        where: { cedula_reportante: abonado.cedula },
+        order: { fecha_reporte: 'DESC' },
+        take: 5,
+        select: { id: true, codigo_averia: true, tipo_averia: true, descripcion: true, estado: true, fecha_reporte: true },
+      }),
+    ]);
+
+    return {
+      abonado: this.aPlano(abonado),
+      estadisticas: { totalSolicitudes, totalAverias },
+      solicitudesRecientes,
+      averiasRecientes,
+    };
   }
 }
