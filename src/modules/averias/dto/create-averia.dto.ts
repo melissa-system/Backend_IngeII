@@ -1,15 +1,31 @@
+import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+
 export class CreateAveriaDto {
-  nombreReportante: string;
-  telefono: string;
-  cedula?: string;
-  ubicacion: string;
+  @IsString()
+  @IsNotEmpty()
+  tipo_averia: string;
+
+  @IsString()
+  @IsNotEmpty()
   descripcion: string;
-  tipoAveria?: string;
-  // Nombre dividido: lo que realmente lee AveriasService.create() del body
-  // (whitelist:false en el ValidationPipe global deja pasar estos campos
-  // aunque no coincidan exactamente con los de arriba).
-  nombre_reportante?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  cedula_reportante: string;
+
+  @IsString()
+  @IsNotEmpty()
+  nombre_reportante: string;
+
+  @IsString()
+  @IsOptional()
   apellido1_reportante?: string;
+
+  @IsString()
+  @IsOptional()
   apellido2_reportante?: string;
-  cedula_reportante?: string;
+
+  @IsString()
+  @IsOptional()
+  ubicacion?: string;
 }
