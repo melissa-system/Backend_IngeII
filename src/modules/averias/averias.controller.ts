@@ -6,12 +6,8 @@ import {
   Param,
   Body,
   UseGuards,
-  UseInterceptors,
-  UploadedFile,
   ParseIntPipe,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { memoryStorage } from 'multer';
 import { AveriasService } from './averias.service';
 import { CreateAveriaDto } from './dto/create-averia.dto';
 import { UpdateAveriaDto } from './dto/update-averia.dto';
@@ -51,19 +47,5 @@ export class AveriasController {
     @Body() dto: UpdateAveriaDto,
   ) {
     return this.averiasService.actualizar(id, dto);
-  }
-
-  @Patch(':id/imagen')
-  @UseInterceptors(
-    FileInterceptor('imagen', {
-      storage: memoryStorage(),
-      limits: { fileSize: 10 * 1024 * 1024 },
-    }),
-  )
-  subirImagen(
-    @Param('id', ParseIntPipe) id: number,
-    @UploadedFile() file: Express.Multer.File,
-  ) {
-    return this.averiasService.subirImagen(id, file);
   }
 }

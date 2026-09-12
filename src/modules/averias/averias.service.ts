@@ -10,7 +10,6 @@ import { HistorialAveria } from './entities/historial-averia.entity';
 import { CreateAveriaDto } from './dto/create-averia.dto';
 import { UpdateAveriaDto } from './dto/update-averia.dto';
 import { Empleado } from '../empleados/entities/empleado.entity';
-import { CloudinaryService } from '../../config/cloudinary.service';
 
 @Injectable()
 export class AveriasService {
@@ -21,13 +20,11 @@ export class AveriasService {
     private readonly historialRepository: Repository<HistorialAveria>,
     @InjectRepository(Empleado)
     private readonly empleadoRepository: Repository<Empleado>,
-    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   async create(dto: CreateAveriaDto): Promise<Averia> {
     const randomNum = Math.floor(1000 + Math.random() * 9000);
     const codigoGenerado = `AVE-2026-${randomNum}`;
-
     const nuevaAveria = this.averiaRepository.create({
       codigo_averia: codigoGenerado,
       tipo_averia: dto.tipo_averia,
@@ -36,7 +33,6 @@ export class AveriasService {
       nombre_reportante: dto.nombre_reportante,
       apellido1_reportante: dto.apellido1_reportante,
       apellido2_reportante: dto.apellido2_reportante,
-      ubicacion: dto.ubicacion,
       estado: 'Pendiente',
     });
 
@@ -124,26 +120,6 @@ export class AveriasService {
     }
 
     await this.averiaRepository.save(averia);
-    return this.findOne(id);
-  }
-
-  async subirImagen(id: number, file: Express.Multer.File): Promise<Averia> {
-    const averia = await this.findOne(id);
-
-    if (averia.imagen_url) {
-      const publicIdMatch = averia.imagen_url.match(/\/([^/]+)$/);
-      if (publicIdMatch) {
-        await this.cloudinaryService.eliminarArchivo(publicIdMatch[1]);
-      }
-    }
-
-    const resultado = await this.cloudinaryService.subirArchivo(
-      file,
-      'ASADA/averias',
-    );
-    averia.imagen_url = resultado.url;
-    await this.averiaRepository.save(averia);
-
     return this.findOne(id);
   }
 }

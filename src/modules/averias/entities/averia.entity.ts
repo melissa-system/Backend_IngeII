@@ -27,6 +27,8 @@ export class Averia {
       'Contador dañado',
       'Fuga en la vía pública',
       'Otro',
+      'Fuga',
+      'Medidor dañado',
     ],
   })
   tipo_averia: string;
@@ -52,12 +54,6 @@ export class Averia {
 
   @Column({ nullable: true })
   apellido2_reportante: string;
-
-  @Column({ nullable: true })
-  ubicacion: string;
-
-  @Column({ nullable: true })
-  imagen_url: string;
 
   @CreateDateColumn()
   fecha_reporte: Date;
