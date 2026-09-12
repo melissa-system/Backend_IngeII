@@ -10,6 +10,7 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AbonadosService } from './abonados.service';
 import { CreateAbonadoDto } from './dto/create-abonado.dto';
 import { UpdateAbonadoDto } from './dto/update-abonado.dto';
@@ -19,6 +20,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/roles.enum';
 import type { RequestUser } from '../auth/strategies/jwt.strategy';
+import { POLITICA_REENVIO_ACCESO_THROTTLE } from './abonados-throttle.config';
 
 @Controller('abonados')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -80,5 +82,16 @@ export class AbonadosController {
   @Roles(Role.ADMIN)
   vincularCuenta(@Param('id', ParseIntPipe) id: number) {
     return this.abonadosService.vincularCuenta(id);
+  }
+
+  // Reenvía el correo de "definir tu contraseña" a un abonado que ya tiene
+  // cuenta vinculada (por si el enlace original venció). Limitado a 1
+  // solicitud cada 15s para que un doble clic no dispare correos duplicados.
+  @Post(':id/reenviar-acceso')
+  @Roles(Role.ADMIN)
+  @UseGuards(ThrottlerGuard)
+  @Throttle(POLITICA_REENVIO_ACCESO_THROTTLE)
+  reenviarAcceso(@Param('id', ParseIntPipe) id: number) {
+    return this.abonadosService.reenviarCorreoAcceso(id);
   }
 }

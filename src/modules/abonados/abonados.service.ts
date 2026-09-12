@@ -322,6 +322,27 @@ export class AbonadosService {
     return { mensaje, abonado: this.aPlano(vinculado) };
   }
 
+  // Reenvía el correo de "definir tu contraseña" a un abonado que YA tiene
+  // cuenta vinculada — para cuando el enlace original venció antes de que
+  // la persona lo usara. El límite de 1 solicitud cada 15s (ver
+  // abonados-throttle.config.ts) evita que un doble clic dispare varios
+  // correos duplicados.
+  async reenviarCorreoAcceso(id: number): Promise<{ mensaje: string }> {
+    const abonado = await this.cargarConDetalle(id);
+
+    if (!abonado.usuario) {
+      throw new BadRequestException(
+        `El abonado ${abonado.numero_abonado} no tiene una cuenta de acceso vinculada.`,
+      );
+    }
+
+    await this.authService.reenviarCorreoAcceso(abonado.usuario.id);
+
+    return {
+      mensaje: `Se reenvió el correo de acceso a ${abonado.usuario.email}.`,
+    };
+  }
+
   private async cargarConDetalle(id: number): Promise<Abonado> {
     const abonado = await this.abonadoRepository.findOne({
       where: { id },

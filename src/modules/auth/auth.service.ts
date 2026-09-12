@@ -792,6 +792,53 @@ export class AuthService {
   }
 
   /**
+   * Reenvía el correo de "primer acceso" (definir contraseña) a una cuenta
+   * que ya existe y ya está vinculada a un Abonado — típicamente porque el
+   * enlace original venció (24h) antes de que la persona lo usara. Invalida
+   * cualquier token pendiente anterior y genera uno nuevo, igual que
+   * solicitarResetPassword, para que solo el último enlace enviado sirva.
+   */
+  async reenviarCorreoAcceso(usuarioId: number): Promise<void> {
+    const user = await this.userRepository.findOne({
+      where: { id: usuarioId },
+    });
+    if (!user) {
+      throw new BadRequestException('No se encontró la cuenta de acceso indicada.');
+    }
+
+    await this.passwordResetTokenRepository.delete({
+      usuario_id: user.id,
+      used_at: IsNull(),
+    });
+
+    const tokenPlano = randomBytes(32).toString('hex');
+    const horas = Number(
+      this.configService.get<string>('ACCOUNT_ACTIVATION_EXPIRES_HOURS') ??
+      24,
+    );
+    const expiresAt = new Date(Date.now() + horas * 60 * 60 * 1000);
+
+    await this.passwordResetTokenRepository.save(
+      this.passwordResetTokenRepository.create({
+        token_hash: AuthService.hashResetToken(tokenPlano),
+        usuario_id: user.id,
+        expires_at: expiresAt,
+      }),
+    );
+
+    const url = `${this.urlFrontendPublica()}/restablecer-password?token=${tokenPlano}`;
+
+    try {
+      await this.mailService.enviarCorreoAccesoAbonado(user.email, url);
+    } catch (error) {
+      console.error(`Error al reenviar el correo de acceso a ${user.email}:`, error);
+      throw new InternalServerErrorException(
+        'No se pudo reenviar el correo de acceso. Intenta más tarde.',
+      );
+    }
+  }
+
+  /**
    * Crear la cuenta de acceso de un Empleado vinculado recién, con el rol
    * que corresponda a su puesto (ver rolParaPuesto en EmpleadosService).
    * Replica el mecanismo de crearCuentaParaAbonado: si ya existe un usuario
