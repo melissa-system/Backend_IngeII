@@ -22,7 +22,16 @@ export class Averia {
   // 4. Un ENUM para que solo permita los tipos de avería válidos de la ASADA
   @Column({
     type: 'enum',
-    enum: ['Fuga', 'Tubería rota', 'Medidor dañado', 'Otro'],
+    enum: [
+      'Fuga de agua',
+      'Tubería rota',
+      'Falta de presión / sin agua',
+      'Contador dañado',
+      'Fuga en la vía pública',
+      'Otro',
+      'Fuga',
+      'Medidor dañado',
+    ],
   })
   tipo_averia: string;
 

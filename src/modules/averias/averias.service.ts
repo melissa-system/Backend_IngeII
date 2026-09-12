@@ -17,13 +17,28 @@ export class AveriasService {
 
     // 2. Mapear tipo_averia al ENUM de MySQL
     let tipoValido = datosAveria.tipo_averia;
-    const tiposPermitidos = ['Fuga', 'Tubería rota', 'Medidor dañado', 'Otro'];
+    const tiposPermitidos = [
+      'Fuga de agua',
+      'Tubería rota',
+      'Falta de presión / sin agua',
+      'Contador dañado',
+      'Fuga en la vía pública',
+      'Otro',
+      'Fuga',
+      'Medidor dañado',
+    ];
 
     if (!tiposPermitidos.includes(tipoValido || '')) {
-      if (tipoValido?.includes('Fuga')) {
-        tipoValido = 'Fuga';
+      if (tipoValido?.includes('vía pública') || tipoValido?.includes('calle')) {
+        tipoValido = 'Fuga en la vía pública';
+      } else if (tipoValido?.includes('Fuga')) {
+        tipoValido = 'Fuga de agua';
       } else if (tipoValido?.includes('Tubería')) {
         tipoValido = 'Tubería rota';
+      } else if (tipoValido?.includes('presión') || tipoValido?.includes('agua')) {
+        tipoValido = 'Falta de presión / sin agua';
+      } else if (tipoValido?.includes('Contador') || tipoValido?.includes('Medidor')) {
+        tipoValido = 'Contador dañado';
       } else {
         tipoValido = 'Otro';
       }
