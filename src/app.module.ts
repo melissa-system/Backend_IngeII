@@ -12,6 +12,7 @@ import { PublicacionesModule } from './modules/publicaciones/publicaciones.modul
 import { DocumentosModule } from './modules/documentos/documentos.module';
 import { EmpleadosModule } from './modules/empleados/empleados.module';
 import { ConfiguracionModule } from './modules/configuracion/configuracion.module';
+import { BitacoraModule } from './modules/bitacora/bitacora.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { ConfiguracionModule } from './modules/configuracion/configuracion.modul
     DocumentosModule,
     EmpleadosModule,
     ConfiguracionModule,
+    BitacoraModule,
   ],
   controllers: [AppController],
   providers: [AppService],
