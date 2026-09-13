@@ -115,6 +115,20 @@ export class SolicitudPajaAgua {
   @Column({ type: 'varchar', length: 255, nullable: true })
   carta_solicitud_public_id: string | null;
 
+  // Foto de la cédula por ambos lados (frente y dorso), pedida para poder
+  // verificar la identidad del solicitante al revisar la solicitud.
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  cedula_frente_path: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  cedula_frente_public_id: string | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  cedula_dorso_path: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  cedula_dorso_public_id: string | null;
+
   @Column({
     type: 'enum',
     enum: ['Pendiente', 'Aprobada', 'Rechazada', 'Completada'],

@@ -18,12 +18,18 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/roles.enum';
 import {
   MIME_TYPES_PERMITIDOS,
+  MIME_TYPES_FOTO_IDENTIFICACION,
   MENSAJE_FORMATO_NO_PERMITIDO,
+  MENSAJE_FORMATO_FOTO_NO_PERMITIDO,
   mensajeTamanoExcedido,
 } from '../../common/config/archivos-permitidos.config';
 
 // Tamaño máximo permitido por archivo adjunto (5 MB)
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+// Campos de archivo que son fotos de un documento de identidad: llevan una
+// regla de formato más estricta que el resto (ver fileFilter abajo).
+const CAMPOS_FOTO_IDENTIFICACION = ['cedulaFrente', 'cedulaDorso'];
 
 @Controller('solicitudes')
 export class SolicitudesController {
@@ -40,13 +46,30 @@ export class SolicitudesController {
       [
         { name: 'permisosMunicipales', maxCount: 1 },
         { name: 'cartaSolicitud', maxCount: 1 },
+        { name: 'cedulaFrente', maxCount: 1 },
+        { name: 'cedulaDorso', maxCount: 1 },
       ],
       {
         storage: memoryStorage(),
         limits: { fileSize: MAX_FILE_SIZE },
         fileFilter: (_req, file, cb) => {
-          if (!MIME_TYPES_PERMITIDOS.includes(file.mimetype)) {
-            cb(new BadRequestException(MENSAJE_FORMATO_NO_PERMITIDO), false);
+          // La foto de la cédula (frente/dorso) tiene una regla más
+          // estricta que el resto de adjuntos: no admite Word/Excel/PPT.
+          const esFotoIdentificacion = CAMPOS_FOTO_IDENTIFICACION.includes(
+            file.fieldname,
+          );
+          const permitidos = esFotoIdentificacion
+            ? MIME_TYPES_FOTO_IDENTIFICACION
+            : MIME_TYPES_PERMITIDOS;
+          if (!permitidos.includes(file.mimetype)) {
+            cb(
+              new BadRequestException(
+                esFotoIdentificacion
+                  ? MENSAJE_FORMATO_FOTO_NO_PERMITIDO
+                  : MENSAJE_FORMATO_NO_PERMITIDO,
+              ),
+              false,
+            );
             return;
           }
           cb(null, true);
@@ -60,11 +83,18 @@ export class SolicitudesController {
     files: {
       permisosMunicipales?: Express.Multer.File[];
       cartaSolicitud?: Express.Multer.File[];
+      cedulaFrente?: Express.Multer.File[];
+      cedulaDorso?: Express.Multer.File[];
     },
   ) {
-    if (!files?.permisosMunicipales?.[0] || !files?.cartaSolicitud?.[0]) {
+    if (
+      !files?.permisosMunicipales?.[0] ||
+      !files?.cartaSolicitud?.[0] ||
+      !files?.cedulaFrente?.[0] ||
+      !files?.cedulaDorso?.[0]
+    ) {
       throw new BadRequestException(
-        'Debes adjuntar los permisos municipales y la carta de solicitud',
+        'Debes adjuntar los permisos municipales, la carta de solicitud y la foto de la cédula por ambos lados',
       );
     }
 
@@ -72,6 +102,8 @@ export class SolicitudesController {
     const adjuntos = [
       ...(files.permisosMunicipales ?? []),
       ...(files.cartaSolicitud ?? []),
+      ...(files.cedulaFrente ?? []),
+      ...(files.cedulaDorso ?? []),
     ];
     if (adjuntos.some((file) => file.size > MAX_FILE_SIZE)) {
       throw new BadRequestException(mensajeTamanoExcedido(MAX_FILE_SIZE));

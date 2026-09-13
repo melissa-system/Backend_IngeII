@@ -49,8 +49,21 @@ export const EXTENSIONES_PERMITIDAS = [
   '.pptx',
 ];
 
+// Subconjunto más estricto para fotos de un documento de identidad: no
+// tiene sentido aceptar un Word/Excel/PowerPoint como "foto de la cédula".
+export const MIME_TYPES_FOTO_IDENTIFICACION = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'application/pdf',
+];
+
 export const MENSAJE_FORMATO_NO_PERMITIDO =
   'Solo se permiten imágenes, documentos Word, Excel, PowerPoint o PDF.';
+
+export const MENSAJE_FORMATO_FOTO_NO_PERMITIDO =
+  'Solo se permiten imágenes o PDF para la foto de la cédula.';
 
 export function mensajeTamanoExcedido(maxBytes: number): string {
   const mb = Math.round(maxBytes / (1024 * 1024));

@@ -24,6 +24,8 @@ export class SolicitudesService {
     files: {
       permisosMunicipales?: Express.Multer.File[];
       cartaSolicitud?: Express.Multer.File[];
+      cedulaFrente?: Express.Multer.File[];
+      cedulaDorso?: Express.Multer.File[];
     },
   ): Promise<SolicitudPajaAgua> {
     // 0. Evitar duplicidad: si ya existe una solicitud reciente con la misma
@@ -54,6 +56,14 @@ export class SolicitudesService {
     );
     const carta = await this.cloudinaryService.subirArchivo(
       files.cartaSolicitud![0],
+      CARPETA_CLOUDINARY,
+    );
+    const cedulaFrente = await this.cloudinaryService.subirArchivo(
+      files.cedulaFrente![0],
+      CARPETA_CLOUDINARY,
+    );
+    const cedulaDorso = await this.cloudinaryService.subirArchivo(
+      files.cedulaDorso![0],
       CARPETA_CLOUDINARY,
     );
 
@@ -92,6 +102,10 @@ export class SolicitudesService {
         permisos_municipales_public_id: permisos.publicId,
         carta_solicitud_path: carta.url,
         carta_solicitud_public_id: carta.publicId,
+        cedula_frente_path: cedulaFrente.url,
+        cedula_frente_public_id: cedulaFrente.publicId,
+        cedula_dorso_path: cedulaDorso.url,
+        cedula_dorso_public_id: cedulaDorso.publicId,
         estado: 'Pendiente',
       });
 
@@ -104,11 +118,15 @@ export class SolicitudesService {
       // intacto en vez de quedar tapado por un fallo de limpieza.
       await this.cloudinaryService.eliminarArchivo(permisos.publicId, false);
       await this.cloudinaryService.eliminarArchivo(carta.publicId, false);
+      await this.cloudinaryService.eliminarArchivo(cedulaFrente.publicId, false);
+      await this.cloudinaryService.eliminarArchivo(cedulaDorso.publicId, false);
       throw error;
     }
   }
 
   async findAll(): Promise<SolicitudPajaAgua[]> {
-    return await this.solicitudRepository.find();
+    return await this.solicitudRepository.find({
+      order: { fecha_solicitud: 'DESC' },
+    });
   }
 }
