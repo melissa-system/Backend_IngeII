@@ -214,6 +214,48 @@ export class MailService {
     });
   }
 
+  // Notificación del resultado de una solicitud de trámite "otro". Como este
+  // tipo no actualiza nada del abonado, además del resultado se incluye el
+  // comentario que dejó el administrador al resolver (obligatorio al aprobar
+  // o rechazar): es la única constancia de qué se hizo.
+  async enviarCorreoResultadoOtro(
+    destinatario: string,
+    datos: {
+      codigo: string;
+      estadoResultado: 'aprobado' | 'rechazado';
+      asunto: string;
+      comentario?: string | null;
+    },
+  ): Promise<void> {
+    const esAprobada = datos.estadoResultado === 'aprobado';
+    await this.transporter.sendMail({
+      from:
+        this.configService.get<string>('EMAIL_FROM') ??
+        'no-reply@asada.local',
+      to: destinatario,
+      subject: `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} ${
+        esAprobada ? 'aprobada' : 'rechazada'
+      }`,
+      html: this.plantillaBase({
+        tituloEncabezado: 'Resultado de tu solicitud',
+        saludo: 'Hola,',
+        parrafos: [
+          `Tu solicitud <strong>${datos.asunto}</strong> con código <strong>${datos.codigo}</strong> fue <strong>${
+            esAprobada ? 'aprobada' : 'rechazada'
+          }</strong>.`,
+          esAprobada
+            ? 'Tu trámite quedó resuelto. El comentario del administrador es el siguiente:'
+            : 'Motivo indicado por el administrador:',
+          datos.comentario
+            ? `<em style="color:#374151;">${datos.comentario}</em>`
+            : 'No se registró un comentario.',
+          'Si necesitás más información, contactanos en las oficinas de la ASADA.',
+        ],
+        notaFinal: 'Gracias por usar el Sistema de Información de Abonados (SIAPB).',
+      }),
+    });
+  }
+
   // Notificación del resultado de una solicitud de "cambio de representante".
   // Se envía al abonado solicitante y, si el nuevo representante registró su
   // propio correo (distinto del de la cuenta), también a él.

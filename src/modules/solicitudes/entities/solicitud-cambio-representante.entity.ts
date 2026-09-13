@@ -41,6 +41,9 @@ export class SolicitudCambioRepresentante {
   @Column({ type: 'varchar', length: 255, nullable: true })
   representante_nuevo_correo: string | null;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  representante_nuevo_telefono: string | null;
+
   @Column({ type: 'text' })
   justificacion: string;
 

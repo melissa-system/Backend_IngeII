@@ -37,4 +37,10 @@ export class AbonadoJuridico {
   // solicitudes aprobadas/rechazadas).
   @Column({ nullable: true })
   representante_correo: string | null;
+
+  // Teléfono del representante legal. Se completa con el flujo de "cambio
+  // de representante" (solicitud aprobada) o a mano; NULL para los registros
+  // anteriores a que existiera el campo.
+  @Column({ nullable: true })
+  representante_telefono: string | null;
 }

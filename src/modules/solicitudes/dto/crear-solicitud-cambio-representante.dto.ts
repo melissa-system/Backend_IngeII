@@ -47,6 +47,10 @@ export class CrearSolicitudCambioRepresentanteDto {
   @IsEmail({}, { message: 'El correo del nuevo representante no es válido' })
   representanteNuevoCorreo?: string;
 
+  @IsOptional()
+  @IsString({ message: 'El teléfono del nuevo representante debe ser texto' })
+  representanteNuevoTelefono?: string;
+
   @IsNotEmpty({ message: 'La justificación es obligatoria' })
   @IsString({ message: 'La justificación debe ser texto' })
   justificacion: string;

@@ -19,6 +19,9 @@ import { SolicitudesCambioMedidorService } from './solicitudes.cambio-medidor.se
 import { SolicitudCambioRepresentante } from './entities/solicitud-cambio-representante.entity';
 import { CambioRepresentanteController } from './solicitudes.cambio-representante.controller';
 import { CambioRepresentanteService } from './solicitudes.cambio-representante.service';
+import { SolicitudOtro } from './entities/solicitud-otro.entity';
+import { SolicitudesOtroController } from './solicitudes.otro.controller';
+import { SolicitudesOtroService } from './solicitudes.otro.service';
 
 @Module({
   // AuthModule se importa para poder inyectar MailService (notificación por
@@ -31,6 +34,7 @@ import { CambioRepresentanteService } from './solicitudes.cambio-representante.s
       SolicitudCambioDomicilio,
       SolicitudCambioMedidor,
       SolicitudCambioRepresentante,
+      SolicitudOtro,
       Abonado,
       Empleado,
       User,
@@ -44,18 +48,21 @@ import { CambioRepresentanteService } from './solicitudes.cambio-representante.s
     CambioDomicilioController,
     SolicitudesCambioMedidorController,
     CambioRepresentanteController,
+    SolicitudesOtroController,
   ],
   providers: [
     SolicitudesService,
     CambioDomicilioService,
     SolicitudesCambioMedidorService,
     CambioRepresentanteService,
+    SolicitudesOtroService,
   ],
   exports: [
     SolicitudesService,
     CambioDomicilioService,
     SolicitudesCambioMedidorService,
     CambioRepresentanteService,
+    SolicitudesOtroService,
   ],
 })
 export class SolicitudesModule {}

@@ -434,6 +434,7 @@ describe('CambioRepresentanteService', () => {
         representante_nuevo_cedula: '1-9876-5432',
         representante_nuevo_direccion: 'Heredia, San Pablo',
         representante_nuevo_correo: 'maria@nuevo.test',
+        representante_nuevo_telefono: '8888-7777',
         justificacion: 'Motivo de prueba',
         copia_cedula_url: 'https://cloudinary.test/cedula.jpg',
       };
@@ -481,16 +482,18 @@ describe('CambioRepresentanteService', () => {
       expect(abonadoJuridico.juridico.cedula_representante).toBe('1-9876-5432');
       expect(abonadoJuridico.juridico.representante_direccion).toBe('Heredia, San Pablo');
       expect(abonadoJuridico.juridico.representante_correo).toBe('maria@nuevo.test');
+      expect(abonadoJuridico.juridico.representante_telefono).toBe('8888-7777');
 
-      // 4 cambios registrados en el historial del abonado.
+      // 5 cambios registrados en el historial del abonado.
       expect(historialRepository.save).toHaveBeenCalledTimes(1);
       const cambios: any[] = historialRepository.save.mock.calls[0][0];
-      expect(cambios).toHaveLength(4);
+      expect(cambios).toHaveLength(5);
       expect(cambios.map((c) => c.campo)).toEqual([
         'nombre_representante_legal',
         'cedula_representante',
         'representante_direccion',
         'representante_correo',
+        'representante_telefono',
       ]);
       expect(cambios[0].valor_anterior).toBe('Ana Martínez');
       expect(cambios[0].valor_nuevo).toBe('María Jiménez');

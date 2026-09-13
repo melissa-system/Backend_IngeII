@@ -40,6 +40,7 @@ export interface SolicitudCambioRepresentanteResponse {
   representante_nuevo_cedula: string;
   representante_nuevo_direccion: string;
   representante_nuevo_correo: string | null;
+  representante_nuevo_telefono: string | null;
   copia_cedula_url: string | null;
   justificacion: string;
   motivo_rechazo: string | null;
@@ -87,6 +88,7 @@ export class CambioRepresentanteService {
       representante_nuevo_cedula: detalle.representante_nuevo_cedula,
       representante_nuevo_direccion: detalle.representante_nuevo_direccion,
       representante_nuevo_correo: detalle.representante_nuevo_correo,
+      representante_nuevo_telefono: detalle.representante_nuevo_telefono,
       copia_cedula_url: detalle.copia_cedula_url,
       justificacion: detalle.justificacion,
       motivo_rechazo: detalle.motivo_rechazo,
@@ -251,6 +253,7 @@ export class CambioRepresentanteService {
       representante_nuevo_cedula: dto.representanteNuevoCedula.trim(),
       representante_nuevo_direccion: dto.representanteNuevoDireccion.trim(),
       representante_nuevo_correo: dto.representanteNuevoCorreo?.trim() || null,
+      representante_nuevo_telefono: dto.representanteNuevoTelefono?.trim() || null,
       justificacion: dto.justificacion.trim(),
       copia_cedula_url: uploadResult.url,
       copia_cedula_public_id: uploadResult.publicId,
@@ -377,6 +380,11 @@ export class CambioRepresentanteService {
           valor_anterior: juridico.representante_correo,
           valor_nuevo: detalle.representante_nuevo_correo,
         },
+        {
+          campo: 'representante_telefono',
+          valor_anterior: juridico.representante_telefono,
+          valor_nuevo: detalle.representante_nuevo_telefono,
+        },
       ];
 
       await this.historialRepository.save(
@@ -395,6 +403,7 @@ export class CambioRepresentanteService {
       juridico.cedula_representante = detalle.representante_nuevo_cedula;
       juridico.representante_direccion = detalle.representante_nuevo_direccion;
       juridico.representante_correo = detalle.representante_nuevo_correo;
+      juridico.representante_telefono = detalle.representante_nuevo_telefono;
       await this.abonadoRepository.save(solicitud.abonado);
     }
 

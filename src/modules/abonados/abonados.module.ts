@@ -9,6 +9,8 @@ import { AbonadoJuridico } from './entities/abonado-juridico.entity';
 import { HistorialAbonado } from './entities/historial-abonado.entity';
 import { User } from '../auth/entities/user.entity';
 import { Empleado } from '../empleados/entities/empleado.entity';
+import { Solicitud } from '../solicitudes/entities/solicitud.entity';
+import { Averia } from '../averias/entities/averia.entity';
 import { AuthModule } from '../auth/auth.module';
 import { POLITICA_REENVIO_ACCESO_THROTTLE } from './abonados-throttle.config';
 
@@ -29,15 +31,14 @@ import { POLITICA_REENVIO_ACCESO_THROTTLE } from './abonados-throttle.config';
       HistorialAbonado,
       User,
       Empleado,
+      Solicitud,
+      Averia,
     ]),
     AuthModule,
     ThrottlerModule.forRoot([POLITICA_REENVIO_ACCESO_THROTTLE.default]),
   ],
-  // 2. Registramos el controlador que va a recibir las peticiones de React
   controllers: [AbonadosController],
-  // 3. Registramos el servicio que va a tener las reglas de negocio
   providers: [AbonadosService],
-  // 4. Exportamos el servicio por si otros módulos (averías, fontaneros) necesitan usarlo más adelante
   exports: [AbonadosService],
 })
 export class AbonadosModule {}
