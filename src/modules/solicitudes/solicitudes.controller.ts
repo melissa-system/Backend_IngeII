@@ -16,18 +16,14 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/roles.enum';
+import {
+  MIME_TYPES_PERMITIDOS,
+  MENSAJE_FORMATO_NO_PERMITIDO,
+  mensajeTamanoExcedido,
+} from '../../common/config/archivos-permitidos.config';
 
 // Tamaño máximo permitido por archivo adjunto (5 MB)
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
-
-// Tipos MIME permitidos: imágenes y PDF
-const ALLOWED_MIME_TYPES = [
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  'application/pdf',
-];
 
 @Controller('solicitudes')
 export class SolicitudesController {
@@ -49,13 +45,8 @@ export class SolicitudesController {
         storage: memoryStorage(),
         limits: { fileSize: MAX_FILE_SIZE },
         fileFilter: (_req, file, cb) => {
-          if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-            cb(
-              new BadRequestException(
-                'Solo se permiten archivos de imagen (JPG, PNG, GIF, WEBP) o PDF',
-              ),
-              false,
-            );
+          if (!MIME_TYPES_PERMITIDOS.includes(file.mimetype)) {
+            cb(new BadRequestException(MENSAJE_FORMATO_NO_PERMITIDO), false);
             return;
           }
           cb(null, true);
@@ -83,9 +74,7 @@ export class SolicitudesController {
       ...(files.cartaSolicitud ?? []),
     ];
     if (adjuntos.some((file) => file.size > MAX_FILE_SIZE)) {
-      throw new BadRequestException(
-        'Los archivos adjuntos no pueden superar los 5 MB',
-      );
+      throw new BadRequestException(mensajeTamanoExcedido(MAX_FILE_SIZE));
     }
 
     return this.solicitudesService.create(createSolicitudDto, files);

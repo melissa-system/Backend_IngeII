@@ -47,14 +47,51 @@ export class SolicitudPajaAgua {
   @Column()
   telefono: string;
 
+  // Teléfono alternativo / medio de notificación secundario (opcional).
+  @Column({ type: 'varchar', nullable: true })
+  telefono_secundario: string | null;
+
   @Column()
   correo: string;
+
+  // Ubicación del inmueble, elegida con los selects en cascada del
+  // catálogo oficial de Costa Rica (evita errores de digitación).
+  // Nullable porque las solicitudes creadas antes de este cambio no
+  // tienen este desglose — synchronize:true solo agrega columnas nuevas,
+  // no puede rellenar datos que nunca se pidieron.
+  @Column({ type: 'varchar', nullable: true })
+  provincia: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  canton: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  distrito: string | null;
 
   @Column({ type: 'text' })
   direccion: string;
 
   @Column()
   numero_plano: string;
+
+  // Sección III.1 del formulario AyA adaptado: naturaleza del inmueble
+  // (inmueble inscrito, parcela agrícola, zona indígena, etc.)
+  @Column({ type: 'varchar', nullable: true })
+  naturaleza_inmueble: string | null;
+
+  // Sección III.2: calidad del titular respecto al inmueble (propietario
+  // registral, poseedor, representante legal, etc.)
+  @Column({ type: 'varchar', nullable: true })
+  calidad_titular: string | null;
+
+  // Sección IV: qué servicio solicita (agua potable / alcantarillado / ambos)
+  @Column({ type: 'varchar', nullable: true })
+  tipo_servicio: string | null;
+
+  // Sección IV: tipo de conexión (nueva conexión, traslado, cambio de
+  // diámetro, servicio temporal, etc.)
+  @Column({ type: 'varchar', nullable: true })
+  tipo_conexion: string | null;
 
   @Column({ type: 'text', nullable: true })
   observaciones: string | null;
