@@ -13,6 +13,7 @@ import { Solicitud } from '../solicitudes/entities/solicitud.entity';
 import { Averia } from '../averias/entities/averia.entity';
 import { AuthModule } from '../auth/auth.module';
 import { POLITICA_REENVIO_ACCESO_THROTTLE } from './abonados-throttle.config';
+import { BitacoraModule } from '../bitacora/bitacora.module';
 
 @Module({
   // 1. Aquí le decimos a NestJS que este módulo utiliza la tabla de Abonados
@@ -36,6 +37,7 @@ import { POLITICA_REENVIO_ACCESO_THROTTLE } from './abonados-throttle.config';
     ]),
     AuthModule,
     ThrottlerModule.forRoot([POLITICA_REENVIO_ACCESO_THROTTLE.default]),
+    BitacoraModule,
   ],
   controllers: [AbonadosController],
   providers: [AbonadosService],

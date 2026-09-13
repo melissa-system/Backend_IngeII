@@ -5,10 +5,12 @@ import { AveriasController } from './averias.controller';
 import { Averia } from './entities/averia.entity';
 import { HistorialAveria } from './entities/historial-averia.entity';
 import { Empleado } from '../empleados/entities/empleado.entity';
+import { BitacoraModule } from '../bitacora/bitacora.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Averia, HistorialAveria, Empleado]),
+    BitacoraModule,
   ],
   controllers: [AveriasController],
   providers: [AveriasService],
