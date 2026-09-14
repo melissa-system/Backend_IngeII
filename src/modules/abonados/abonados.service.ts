@@ -14,6 +14,8 @@ import { Empleado } from '../empleados/entities/empleado.entity';
 import { Solicitud } from '../solicitudes/entities/solicitud.entity';
 import { Averia } from '../averias/entities/averia.entity';
 import { AuthService } from '../auth/auth.service';
+import { BitacoraService } from '../bitacora/bitacora.service';
+import { ModuloBitacora } from '../bitacora/entities/bitacora.enums';
 
 // Forma "plana" que consume el frontend: junta la fila base con los campos
 // de la subtabla que corresponda (fisico o juridico) en un solo objeto,
@@ -60,6 +62,7 @@ export class AbonadosService {
     @InjectRepository(Averia)
     private readonly averiaRepository: Repository<Averia>,
     private readonly authService: AuthService,
+    private readonly bitacoraService: BitacoraService,
   ) {}
 
   private aPlano(abonado: Abonado): AbonadoPlano {
@@ -561,18 +564,23 @@ export class AbonadosService {
     }
 
     if (usuarioId !== undefined) {
-      await this.registrarHistorial(
+      const usuario = await this.userRepository.findOneBy({ id: usuarioId });
+      await this.bitacoraService.registrarCambioEstado(
+        ModuloBitacora.ABONADOS,
         guardado.id,
-        { estado: estadoAnterior },
-        { estado: nuevoEstado },
-        usuarioId,
+        { id: usuarioId, email: usuario?.email ?? `usuario-${usuarioId}` },
+        estadoAnterior,
+        nuevoEstado,
       );
     }
 
     return this.aPlano(guardado);
   }
 
-  // Guarda una fila por cada campo cuyo valor cambió realmente.
+  // Guarda una entrada en la bitácora general por cada campo que cambió
+  // realmente. Antes escribía en la tabla historial_abonados; ahora delega
+  // en BitacoraService para que toda la auditoría del sistema viva en un
+  // solo lugar. Las llamadas a este método NO cambiaron.
   private async registrarHistorial(
     abonadoId: number,
     original: Record<string, string | null>,
@@ -582,37 +590,74 @@ export class AbonadosService {
     const pares = Object.keys(cambios)
       .map((campo) => ({
         campo,
-        anterior: original[campo] ?? null,
-        nuevo: cambios[campo] ?? null,
+        valor_anterior: original[campo] ?? null,
+        valor_nuevo: cambios[campo] ?? null,
       }))
-      .filter((p) => (p.anterior ?? '') !== (p.nuevo ?? ''));
-
+      .filter((p) => (p.valor_anterior ?? '') !== (p.valor_nuevo ?? ''));
+ 
     if (pares.length === 0) return;
-
+ 
     const usuario = await this.userRepository.findOneBy({ id: usuarioId });
-    const email = usuario?.email ?? `usuario-${usuarioId}`;
-
-    await this.historialRepository.save(
-      pares.map((p) =>
-        this.historialRepository.create({
-          abonado: { id: abonadoId },
-          usuario_email: email,
-          campo: p.campo,
-          valor_anterior: p.anterior,
-          valor_nuevo: p.nuevo,
-        }),
-      ),
+    const autor = {
+      id: usuarioId,
+      email: usuario?.email ?? `usuario-${usuarioId}`,
+    };
+ 
+    await this.bitacoraService.registrarEdicion(
+      ModuloBitacora.ABONADOS,
+      abonadoId,
+      autor,
+      pares,
     );
   }
 
-  async obtenerHistorial(id: number): Promise<HistorialAbonado[]> {
+  // Historial de un abonado. Devuelve la MISMA forma que antes
+  // (campo / valor_anterior / valor_nuevo / usuario_email / fecha) para que
+  // el frontend no tenga que cambiar, pero leyendo de la bitácora general.
+  //
+  // Los registros anteriores a la migración siguen en historial_abonados y
+  // se concatenan acá, para no perder el histórico ya acumulado.
+  async obtenerHistorial(id: number): Promise<
+    Array<{
+      id: number;
+      campo: string | null;
+      valor_anterior: string | null;
+      valor_nuevo: string | null;
+      usuario_email: string | null;
+      fecha: Date;
+    }>
+  > {
     const abonado = await this.findOne(id);
-    return await this.historialRepository.find({
+ 
+    const nuevos = await this.bitacoraService.historialDeRegistro(
+      ModuloBitacora.ABONADOS,
+      abonado.id,
+    );
+ 
+    const viejos = await this.historialRepository.find({
       where: { abonado: { id: abonado.id } },
       order: { fecha: 'DESC' },
     });
+ 
+    return [
+      ...nuevos.map((b) => ({
+        id: b.id,
+        campo: b.campo,
+        valor_anterior: b.valor_anterior,
+        valor_nuevo: b.valor_nuevo,
+        usuario_email: b.usuario_email,
+        fecha: b.fecha,
+      })),
+      ...viejos.map((h) => ({
+        id: h.id,
+        campo: h.campo,
+        valor_anterior: h.valor_anterior,
+        valor_nuevo: h.valor_nuevo,
+        usuario_email: h.usuario_email,
+        fecha: h.fecha,
+      })),
+    ].sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
   }
-
   // Resumen personalizado para la vista del abonado: datos personales,
   // conteo de solicitudes y averías, y las 5 más recientes de cada una.
   // Las averías se vinculan por cédula (no hay FK directa).
