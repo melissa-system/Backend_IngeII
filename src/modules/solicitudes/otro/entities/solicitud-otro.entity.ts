@@ -5,7 +5,7 @@ import {
   OneToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
-import { Solicitud } from './solicitud.entity';
+import { Solicitud } from '../../common/entities/solicitud.entity';
 
 // Detalle específico del tipo "otro": trámite abierto que no encaja en los
 // tipos predefinidos (cambio de domicilio, representante, medidor...). Se une

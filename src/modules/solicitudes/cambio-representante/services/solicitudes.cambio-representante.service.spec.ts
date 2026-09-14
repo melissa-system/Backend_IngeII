@@ -1,13 +1,13 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CambioRepresentanteService } from './solicitudes.cambio-representante.service';
-import { CrearSolicitudCambioRepresentanteDto } from './dto/crear-solicitud-cambio-representante.dto';
-import { ActualizarEstadoSolicitudDto } from './dto/actualizar-estado-solicitud.dto';
-import { CloudinaryService } from '../../config/cloudinary.service';
-import { MailService } from '../auth/mail.service';
-import { Solicitud } from './entities/solicitud.entity';
-import { SolicitudCambioRepresentante } from './entities/solicitud-cambio-representante.entity';
-import { Abonado } from '../abonados/entities/abonado.entity';
-import { HistorialAbonado } from '../abonados/entities/historial-abonado.entity';
+import { CrearSolicitudCambioRepresentanteDto } from '../dto/crear-solicitud-cambio-representante.dto';
+import { ActualizarEstadoSolicitudDto } from '../../common/dto/actualizar-estado-solicitud.dto';
+import { CloudinaryService } from '../../../../config/cloudinary.service';
+import { MailService } from '../../../auth/mail.service';
+import { Solicitud } from '../../common/entities/solicitud.entity';
+import { SolicitudCambioRepresentante } from '../entities/solicitud-cambio-representante.entity';
+import { Abonado } from '../../../abonados/entities/abonado.entity';
+import { HistorialAbonado } from '../../../abonados/entities/historial-abonado.entity';
 
 // Prueba el flujo completo de las solicitudes de cambio de representante legal
 // a nivel de servicio, simulando los repositorios de TypeORM, Cloudinary y el

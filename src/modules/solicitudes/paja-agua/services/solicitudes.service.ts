@@ -1,9 +1,9 @@
 import { Injectable, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SolicitudPajaAgua } from './entities/solicitud-paja-agua.entity';
-import { CreateSolicitudPajaAguaDto } from './dto/create-solicitud-paja-agua.dto';
-import { CloudinaryService } from '../../config/cloudinary.service';
+import { SolicitudPajaAgua } from '../entities/solicitud-paja-agua.entity';
+import { CreateSolicitudPajaAguaDto } from '../dto/create-solicitud-paja-agua.dto';
+import { CloudinaryService } from '../../../../config/cloudinary.service';
 
 // Ventana de tiempo para considerar una solicitud como duplicada (10 minutos)
 const VENTANA_DUPLICADO_MINUTOS = 10;

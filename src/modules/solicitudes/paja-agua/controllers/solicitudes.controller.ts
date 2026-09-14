@@ -10,19 +10,19 @@ import {
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { SolicitudesService } from './solicitudes.service';
-import { CreateSolicitudPajaAguaDto } from './dto/create-solicitud-paja-agua.dto';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { Role } from '../../common/enums/roles.enum';
+import { SolicitudesService } from '../services/solicitudes.service';
+import { CreateSolicitudPajaAguaDto } from '../dto/create-solicitud-paja-agua.dto';
+import { RolesGuard } from '../../../../common/guards/roles.guard';
+import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
+import { Roles } from '../../../../common/decorators/roles.decorator';
+import { Role } from '../../../../common/enums/roles.enum';
 import {
   MIME_TYPES_PERMITIDOS,
   MIME_TYPES_FOTO_IDENTIFICACION,
   MENSAJE_FORMATO_NO_PERMITIDO,
   MENSAJE_FORMATO_FOTO_NO_PERMITIDO,
   mensajeTamanoExcedido,
-} from '../../common/config/archivos-permitidos.config';
+} from '../../../../common/config/archivos-permitidos.config';
 
 // Tamaño máximo permitido por archivo adjunto (5 MB)
 const MAX_FILE_SIZE = 5 * 1024 * 1024;

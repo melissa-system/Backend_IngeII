@@ -9,7 +9,7 @@ import { AbonadoJuridico } from './entities/abonado-juridico.entity';
 import { HistorialAbonado } from './entities/historial-abonado.entity';
 import { User } from '../auth/entities/user.entity';
 import { Empleado } from '../empleados/entities/empleado.entity';
-import { Solicitud } from '../solicitudes/entities/solicitud.entity';
+import { Solicitud } from '../solicitudes/common/entities/solicitud.entity';
 import { Averia } from '../averias/entities/averia.entity';
 import { AuthModule } from '../auth/auth.module';
 import { POLITICA_REENVIO_ACCESO_THROTTLE } from './abonados-throttle.config';

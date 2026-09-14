@@ -5,7 +5,7 @@ import {
   OneToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
-import { Solicitud } from './solicitud.entity';
+import { Solicitud } from '../../common/entities/solicitud.entity';
 
 @Entity('solicitud_cambio_medidor')
 export class SolicitudCambioMedidor {

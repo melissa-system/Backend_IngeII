@@ -7,12 +7,12 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { Abonado } from '../../abonados/entities/abonado.entity';
-import { Empleado } from '../../empleados/entities/empleado.entity';
+import { Abonado } from '../../../abonados/entities/abonado.entity';
+import { Empleado } from '../../../empleados/entities/empleado.entity';
 
 // Solicitud genérica del sistema: una fila por solicitud, sin importar el
 // tipo. Los campos específicos de cada tipo viven en tablas hijo que
-// referencian id_solicitud (ej: solicitud_cambio_domicilio).
+// referencian solicitud_id (ej: solicitud_paja_agua, solicitud_cambio_propietario).
 //
 // Así el frontend puede listar "todas las solicitudes" en el panel y cada
 // sub-sección del menú filtra por tipo_solicitud.
@@ -21,7 +21,7 @@ export class Solicitud {
   @PrimaryGeneratedColumn()
   id: number;
 
-  // Código único para seguir la solicitud (Ej: SOL-CD-2026-1234)
+  // Código único para seguir la solicitud (Ej: SOL-PA-2026-1234)
   @Column({ unique: true })
   codigo_solicitud: string;
 
@@ -29,9 +29,7 @@ export class Solicitud {
   @JoinColumn({ name: 'id_abonado' })
   abonado: Abonado;
 
-  // Tipo de solicitud. Hoy solo existe 'cambio_domicilio'; los demás tipos
-  // del sistema (cambio de medidor, cambio de representante, etc.) irán
-  // entrando con su tabla hijo correspondiente.
+  // Tipo de solicitud ('paja_agua', 'cambio_propietario', 'cambio_representante', 'cambio_medidor', 'otro').
   @Column()
   tipo_solicitud: string;
 

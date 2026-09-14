@@ -6,7 +6,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { Empleado } from '../../empleados/entities/empleado.entity';
+import { Empleado } from '../../../empleados/entities/empleado.entity';
 
 // Tabla dedicada a las solicitudes de paja de agua (nueva conexión).
 // Más adelante se podrán agregar otras tablas de solicitudes

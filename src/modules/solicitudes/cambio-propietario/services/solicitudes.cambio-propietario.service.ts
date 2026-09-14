@@ -1,30 +1,32 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, Repository } from 'typeorm';
-import { Solicitud } from './entities/solicitud.entity';
-import { SolicitudCambioRepresentante } from './entities/solicitud-cambio-representante.entity';
-import { Abonado } from '../abonados/entities/abonado.entity';
-import { Empleado } from '../empleados/entities/empleado.entity';
-import { User } from '../auth/entities/user.entity';
-import { HistorialAbonado } from '../abonados/entities/historial-abonado.entity';
-import { MailService } from '../auth/mail.service';
-import { CloudinaryService } from '../../config/cloudinary.service';
-import { CrearSolicitudCambioRepresentanteDto } from './dto/crear-solicitud-cambio-representante.dto';
-import { ActualizarEstadoSolicitudDto } from './dto/actualizar-estado-solicitud.dto';
-import type { RequestUser } from '../auth/strategies/jwt.strategy';
+import { Solicitud } from '../../common/entities/solicitud.entity';
+import { SolicitudCambioPropietario } from '../entities/solicitud-cambio-propietario.entity';
+import { SolicitudDocumento } from '../../common/entities/solicitud-documento.entity';
+import { Abonado } from '../../../abonados/entities/abonado.entity';
+import { Empleado } from '../../../empleados/entities/empleado.entity';
+import { User } from '../../../auth/entities/user.entity';
+import { HistorialAbonado } from '../../../abonados/entities/historial-abonado.entity';
+import { MailService } from '../../../auth/mail.service';
+import { CloudinaryService } from '../../../../config/cloudinary.service';
+import { BitacoraService } from '../../../bitacora/bitacora.service';
+import { ModuloBitacora } from '../../../bitacora/entities/bitacora.enums';
+import { CrearSolicitudCambioPropietarioDto } from '../dto/crear-solicitud-cambio-propietario.dto';
+import { ActualizarEstadoSolicitudDto } from '../../common/dto/actualizar-estado-solicitud.dto';
+import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
 
-export const TIPO_CAMBIO_REPRESENTANTE = 'cambio_representante';
+export const TIPO_CAMBIO_PROPIETARIO = 'cambio_propietario';
 
 const ESTADOS_ABIERTOS = ['pendiente', 'en_proceso'];
 const ESTADOS_FINALES = ['aprobado', 'rechazado'];
 
-// Forma "plana" que consume el frontend: junta la fila de solicitudes con el
-// detalle de cambio de representante y los datos del abonado en un solo objeto.
-export interface SolicitudCambioRepresentanteResponse {
+export interface SolicitudCambioPropietarioResponse {
   id: number;
   codigo_solicitud: string;
   id_abonado: number;
@@ -32,17 +34,16 @@ export interface SolicitudCambioRepresentanteResponse {
   nombre_abonado: string;
   cedula: string;
   correo: string;
+  telefono: string;
   tipo_solicitud: string;
   estado: string;
-  representante_anterior_nombre: string;
-  representante_anterior_cedula: string;
-  representante_nuevo_nombre: string;
-  representante_nuevo_cedula: string;
-  representante_nuevo_direccion: string;
-  representante_nuevo_correo: string | null;
-  representante_nuevo_telefono: string | null;
-  copia_cedula_url: string | null;
+  nombre_nuevo_propietario: string;
+  cedula_nuevo_propietario: string;
+  telefono_nuevo_propietario: string;
+  correo_nuevo_propietario: string;
+  motivo_traspaso: string;
   justificacion: string;
+  documento_soporte_url: string | null;
   motivo_rechazo: string | null;
   id_empleado: number | null;
   fecha_creacion: Date;
@@ -50,12 +51,14 @@ export interface SolicitudCambioRepresentanteResponse {
 }
 
 @Injectable()
-export class CambioRepresentanteService {
+export class SolicitudesCambioPropietarioService {
   constructor(
     @InjectRepository(Solicitud)
     private readonly solicitudRepository: Repository<Solicitud>,
-    @InjectRepository(SolicitudCambioRepresentante)
-    private readonly detalleRepository: Repository<SolicitudCambioRepresentante>,
+    @InjectRepository(SolicitudCambioPropietario)
+    private readonly detalleRepository: Repository<SolicitudCambioPropietario>,
+    @InjectRepository(SolicitudDocumento)
+    private readonly documentoRepository: Repository<SolicitudDocumento>,
     @InjectRepository(Abonado)
     private readonly abonadoRepository: Repository<Abonado>,
     @InjectRepository(Empleado)
@@ -65,13 +68,14 @@ export class CambioRepresentanteService {
     @InjectRepository(HistorialAbonado)
     private readonly historialRepository: Repository<HistorialAbonado>,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly bitacoraService: BitacoraService,
     private readonly mailService: MailService,
   ) {}
 
   private construirRespuesta(
     solicitud: Solicitud,
-    detalle: SolicitudCambioRepresentante,
-  ): SolicitudCambioRepresentanteResponse {
+    detalle: SolicitudCambioPropietario,
+  ): SolicitudCambioPropietarioResponse {
     return {
       id: solicitud.id,
       codigo_solicitud: solicitud.codigo_solicitud,
@@ -80,17 +84,16 @@ export class CambioRepresentanteService {
       nombre_abonado: solicitud.abonado?.nombre ?? '',
       cedula: solicitud.abonado?.cedula ?? '',
       correo: solicitud.abonado?.correo ?? '',
+      telefono: solicitud.abonado?.telefono ?? '',
       tipo_solicitud: solicitud.tipo_solicitud,
       estado: solicitud.estado,
-      representante_anterior_nombre: detalle.representante_anterior_nombre,
-      representante_anterior_cedula: detalle.representante_anterior_cedula,
-      representante_nuevo_nombre: detalle.representante_nuevo_nombre,
-      representante_nuevo_cedula: detalle.representante_nuevo_cedula,
-      representante_nuevo_direccion: detalle.representante_nuevo_direccion,
-      representante_nuevo_correo: detalle.representante_nuevo_correo,
-      representante_nuevo_telefono: detalle.representante_nuevo_telefono,
-      copia_cedula_url: detalle.copia_cedula_url,
+      nombre_nuevo_propietario: detalle.nombre_nuevo_propietario,
+      cedula_nuevo_propietario: detalle.cedula_nuevo_propietario,
+      telefono_nuevo_propietario: detalle.telefono_nuevo_propietario,
+      correo_nuevo_propietario: detalle.correo_nuevo_propietario,
+      motivo_traspaso: detalle.motivo_traspaso,
       justificacion: detalle.justificacion,
+      documento_soporte_url: detalle.documento_soporte_url,
       motivo_rechazo: detalle.motivo_rechazo,
       id_empleado: solicitud.empleado?.id ?? null,
       fecha_creacion: solicitud.fecha_creacion,
@@ -100,9 +103,9 @@ export class CambioRepresentanteService {
 
   private async cargarCompleta(
     id: number,
-  ): Promise<SolicitudCambioRepresentanteResponse> {
+  ): Promise<SolicitudCambioPropietarioResponse> {
     const solicitud = await this.solicitudRepository.findOne({
-      where: { id, tipo_solicitud: TIPO_CAMBIO_REPRESENTANTE },
+      where: { id, tipo_solicitud: TIPO_CAMBIO_PROPIETARIO },
       relations: { abonado: true, empleado: true },
     });
     if (!solicitud) {
@@ -113,7 +116,7 @@ export class CambioRepresentanteService {
     });
     if (!detalle) {
       throw new NotFoundException(
-        'La solicitud no tiene detalle de cambio de representante',
+        'La solicitud no tiene detalle de cambio de propietario',
       );
     }
     return this.construirRespuesta(solicitud, detalle);
@@ -122,7 +125,6 @@ export class CambioRepresentanteService {
   private buscarAbonadoDeUsuario(usuarioId: number): Promise<Abonado | null> {
     return this.abonadoRepository.findOne({
       where: { usuario: { id: usuarioId } },
-      relations: { juridico: true },
     });
   }
 
@@ -136,7 +138,7 @@ export class CambioRepresentanteService {
     const anio = new Date().getFullYear();
     for (;;) {
       const randomNum = Math.floor(1000 + Math.random() * 9000);
-      const codigo = `SOL-REP-${anio}-${randomNum}`;
+      const codigo = `SOL-PRO-${anio}-${randomNum}`;
       const existente = await this.solicitudRepository.findOneBy({
         codigo_solicitud: codigo,
       });
@@ -144,34 +146,37 @@ export class CambioRepresentanteService {
     }
   }
 
-  // Compara cédulas ignorando formatos distintos de la misma identificación
-  // (con o sin guiones): "1-2222-3333" === "122223333".
   private cedulasIguales(a: string, b: string): boolean {
     return a.replace(/\D/g, '') === b.replace(/\D/g, '');
   }
 
   async crear(
-    dto: CrearSolicitudCambioRepresentanteDto,
+    dto: CrearSolicitudCambioPropietarioDto,
     file: Express.Multer.File,
     user: RequestUser,
-  ): Promise<SolicitudCambioRepresentanteResponse> {
-    // 1. Resolver el abonado: un abonado logueado usa su propio registro; un
-    //    administrador elige el abonado para quien se crea la solicitud.
+  ): Promise<SolicitudCambioPropietarioResponse> {
+    // 1. Antisuplantación y resolución de abonado
     let abonado: Abonado | null = null;
     if (user.role === 'abonado') {
-      abonado = await this.buscarAbonadoDeUsuario(user.id);
-      if (!abonado) {
+      const abonadoVinculado = await this.buscarAbonadoDeUsuario(user.id);
+      if (!abonadoVinculado) {
         throw new BadRequestException(
           'No hay un abonado vinculado a tu cuenta para hacer esta solicitud',
         );
       }
+      // Si un abonado envía en el payload un idAbonado distinto, 403 Forbidden
+      if (dto.idAbonado && Number(dto.idAbonado) !== abonadoVinculado.id) {
+        throw new ForbiddenException(
+          'No tienes permiso para solicitar un cambio de propietario en nombre de otro abonado',
+        );
+      }
+      abonado = abonadoVinculado;
     } else {
       if (!dto.idAbonado) {
         throw new BadRequestException('Debes seleccionar un abonado');
       }
       abonado = await this.abonadoRepository.findOne({
         where: { id: dto.idAbonado },
-        relations: { juridico: true },
       });
     }
 
@@ -184,86 +189,79 @@ export class CambioRepresentanteService {
       );
     }
 
-    // 2. Solo los abonados jurídicos tienen representante legal.
-    if (abonado.tipo_abonado !== 'Jurídica' || !abonado.juridico) {
+    // 2. La cédula del nuevo propietario no puede ser igual a la del actual
+    if (this.cedulasIguales(dto.cedulaNuevoPropietario, abonado.cedula)) {
       throw new BadRequestException(
-        'Solo los abonados jurídicos pueden solicitar un cambio de representante legal',
+        'La cédula del nuevo propietario debe ser distinta de la cédula del propietario actual',
       );
     }
 
-    // 3. El nuevo representante debe ser distinto del actual (se copia
-    //    automáticamente como representante_anterior).
-    const representanteAnteriorNombre =
-      abonado.juridico.nombre_representante_legal?.trim() || '';
-    const representanteAnteriorCedula =
-      abonado.juridico.cedula_representante?.trim() || '';
-    if (
-      this.cedulasIguales(
-        dto.representanteNuevoCedula,
-        representanteAnteriorCedula,
-      )
-    ) {
-      throw new BadRequestException(
-        'La cédula del nuevo representante debe ser distinta de la cédula del representante actual',
-      );
-    }
-
-    // 4. Evitar duplicados: máximo una solicitud de cambio de representante
-    //    abierta (pendiente o en proceso) por abonado.
+    // 3. Evitar duplicados: máximo una solicitud abierta por abonado
     const duplicada = await this.solicitudRepository.findOne({
       where: {
         abonado: { id: abonado.id },
-        tipo_solicitud: TIPO_CAMBIO_REPRESENTANTE,
+        tipo_solicitud: TIPO_CAMBIO_PROPIETARIO,
         estado: In(ESTADOS_ABIERTOS),
       },
     });
     if (duplicada) {
       throw new BadRequestException(
-        `Ya existe una solicitud de cambio de representante en curso (${duplicada.codigo_solicitud}). Espera a que se resuelva antes de crear otra.`,
+        `Ya existe una solicitud de cambio de propietario en curso (${duplicada.codigo_solicitud}). Espera a que se resuelva antes de crear otra.`,
       );
     }
 
-    // 5. Subir la foto o PDF de la cédula del nuevo representante a Cloudinary.
+    // 4. Subida a Cloudinary en solicitudes/cambio-propietario
     const esImagen = file.mimetype.startsWith('image/');
     const uploadResult = await this.cloudinaryService.subirArchivo(
       file,
-      'solicitudes/cambio-representante',
+      'solicitudes/cambio-propietario',
     );
 
-    // 6. Quien crea la solicitud siendo empleado queda asociado a ella.
+    // 5. Vincular empleado si es rol administrativo
     const empleado =
       user.role === 'abonado'
         ? null
         : await this.buscarEmpleadoDeUsuario(user.id);
 
+    // 6. Guardar cabecera de Solicitud
     const solicitud = this.solicitudRepository.create({
       codigo_solicitud: await this.generarCodigoUnico(),
       abonado,
-      tipo_solicitud: TIPO_CAMBIO_REPRESENTANTE,
+      tipo_solicitud: TIPO_CAMBIO_PROPIETARIO,
       estado: 'pendiente',
       empleado,
     });
-    const guardada = await this.solicitudRepository.save(solicitud);
 
-    const detalle = this.detalleRepository.create({
-      solicitud: guardada,
-      representante_anterior_nombre: representanteAnteriorNombre,
-      representante_anterior_cedula: representanteAnteriorCedula,
-      representante_nuevo_nombre: dto.representanteNuevoNombre.trim(),
-      representante_nuevo_cedula: dto.representanteNuevoCedula.trim(),
-      representante_nuevo_direccion: dto.representanteNuevoDireccion.trim(),
-      representante_nuevo_correo: dto.representanteNuevoCorreo?.trim() || null,
-      representante_nuevo_telefono: dto.representanteNuevoTelefono?.trim() || null,
-      justificacion: dto.justificacion.trim(),
-      copia_cedula_url: uploadResult.url,
-      copia_cedula_public_id: uploadResult.publicId,
-      motivo_rechazo: null,
-    });
+    let solicitudGuardada: Solicitud;
     try {
+      solicitudGuardada = await this.solicitudRepository.save(solicitud);
+
+      // 7. Guardar en tabla relacional solicitud_documentos
+      const doc = this.documentoRepository.create({
+        solicitud: solicitudGuardada,
+        documento_url: uploadResult.url,
+        documento_public_id: uploadResult.publicId,
+        tipo_documento: 'documento_soporte',
+        nombre_original: file.originalname,
+      });
+      await this.documentoRepository.save(doc);
+
+      // 8. Guardar en detalle solicitud_cambio_propietario
+      const detalle = this.detalleRepository.create({
+        solicitud: solicitudGuardada,
+        nombre_nuevo_propietario: dto.nombreNuevoPropietario.trim(),
+        cedula_nuevo_propietario: dto.cedulaNuevoPropietario.trim(),
+        telefono_nuevo_propietario: dto.telefonoNuevoPropietario.trim(),
+        correo_nuevo_propietario: dto.correoNuevoPropietario.trim(),
+        motivo_traspaso: dto.motivoTraspaso,
+        justificacion: dto.justificacion.trim(),
+        documento_soporte_url: uploadResult.url,
+        documento_soporte_public_id: uploadResult.publicId,
+        motivo_rechazo: null,
+      });
       await this.detalleRepository.save(detalle);
     } catch (error) {
-      // Rollback: si falló el guardado en BD, no dejar la cédula huérfana en
-      // Cloudinary.
+      // Rollback de Cloudinary en caso de fallo en BD
       await this.cloudinaryService.eliminarArchivo(
         uploadResult.publicId,
         esImagen,
@@ -271,13 +269,23 @@ export class CambioRepresentanteService {
       throw error;
     }
 
-    return this.cargarCompleta(guardada.id);
+    // 9. Registro obligatorio en Bitácora
+    const usuarioAutor = await this.userRepository.findOneBy({ id: user.id });
+    const autorEmail = (user as any).email ?? usuarioAutor?.email ?? null;
+
+    await this.bitacoraService.registrarCreacion(
+      ModuloBitacora.SOLICITUDES,
+      solicitudGuardada.id,
+      { id: user.id, email: autorEmail },
+      'Solicitud de cambio de propietario creada',
+    );
+
+    return this.cargarCompleta(solicitudGuardada.id);
   }
 
-  async listar(user: RequestUser): Promise<SolicitudCambioRepresentanteResponse[]> {
-    // Un abonado solo ve sus propias solicitudes; un administrador las ve todas.
+  async listar(user: RequestUser): Promise<SolicitudCambioPropietarioResponse[]> {
     const donde: FindOptionsWhere<Solicitud> = {
-      tipo_solicitud: TIPO_CAMBIO_REPRESENTANTE,
+      tipo_solicitud: TIPO_CAMBIO_PROPIETARIO,
     };
     if (user.role === 'abonado') {
       const abonado = await this.buscarAbonadoDeUsuario(user.id);
@@ -311,10 +319,10 @@ export class CambioRepresentanteService {
     id: number,
     dto: ActualizarEstadoSolicitudDto,
     user: RequestUser,
-  ): Promise<SolicitudCambioRepresentanteResponse> {
+  ): Promise<SolicitudCambioPropietarioResponse> {
     const solicitud = await this.solicitudRepository.findOne({
-      where: { id, tipo_solicitud: TIPO_CAMBIO_REPRESENTANTE },
-      relations: { abonado: { juridico: true }, empleado: true },
+      where: { id, tipo_solicitud: TIPO_CAMBIO_PROPIETARIO },
+      relations: { abonado: true, empleado: true },
     });
     if (!solicitud) {
       throw new NotFoundException('La solicitud no fue encontrada');
@@ -324,7 +332,7 @@ export class CambioRepresentanteService {
     });
     if (!detalle) {
       throw new NotFoundException(
-        'La solicitud no tiene detalle de cambio de representante',
+        'La solicitud no tiene detalle de cambio de propietario',
       );
     }
 
@@ -334,7 +342,7 @@ export class CambioRepresentanteService {
       );
     }
 
-    // Quien gestiona, sea quien la creó o quién la resuelve, queda asociado.
+    const estadoAnterior = solicitud.estado;
     const empleado = await this.buscarEmpleadoDeUsuario(user.id);
     if (empleado) {
       solicitud.empleado = empleado;
@@ -345,45 +353,31 @@ export class CambioRepresentanteService {
       detalle.motivo_rechazo = dto.motivoRechazo?.trim() || null;
     }
 
-    // Al aprobar, el abonado jurídico adopta los datos del nuevo representante
-    // y se registra en el historial del abonado. Si se rechaza, no se modifica
-    // nada del abonado.
     if (dto.estado === 'aprobado') {
-      const juridico = solicitud.abonado.juridico;
-      if (!juridico) {
-        throw new BadRequestException(
-          'El abonado no tiene un representante legal registrado',
-        );
-      }
-
       const usuario = await this.userRepository.findOneBy({ id: user.id });
       const email = usuario?.email ?? `usuario-${user.id}`;
 
+      // Registrar en historial de movimientos del abonado
       const cambios = [
         {
-          campo: 'nombre_representante_legal',
-          valor_anterior: juridico.nombre_representante_legal,
-          valor_nuevo: detalle.representante_nuevo_nombre,
+          campo: 'propietario_nombre',
+          valor_anterior: solicitud.abonado.nombre,
+          valor_nuevo: detalle.nombre_nuevo_propietario,
         },
         {
-          campo: 'cedula_representante',
-          valor_anterior: juridico.cedula_representante,
-          valor_nuevo: detalle.representante_nuevo_cedula,
+          campo: 'propietario_cedula',
+          valor_anterior: solicitud.abonado.cedula,
+          valor_nuevo: detalle.cedula_nuevo_propietario,
         },
         {
-          campo: 'representante_direccion',
-          valor_anterior: juridico.representante_direccion,
-          valor_nuevo: detalle.representante_nuevo_direccion,
+          campo: 'propietario_telefono',
+          valor_anterior: solicitud.abonado.telefono,
+          valor_nuevo: detalle.telefono_nuevo_propietario,
         },
         {
-          campo: 'representante_correo',
-          valor_anterior: juridico.representante_correo,
-          valor_nuevo: detalle.representante_nuevo_correo,
-        },
-        {
-          campo: 'representante_telefono',
-          valor_anterior: juridico.representante_telefono,
-          valor_nuevo: detalle.representante_nuevo_telefono,
+          campo: 'propietario_correo',
+          valor_anterior: solicitud.abonado.correo,
+          valor_nuevo: detalle.correo_nuevo_propietario,
         },
       ];
 
@@ -398,13 +392,6 @@ export class CambioRepresentanteService {
           }),
         ),
       );
-
-      juridico.nombre_representante_legal = detalle.representante_nuevo_nombre;
-      juridico.cedula_representante = detalle.representante_nuevo_cedula;
-      juridico.representante_direccion = detalle.representante_nuevo_direccion;
-      juridico.representante_correo = detalle.representante_nuevo_correo;
-      juridico.representante_telefono = detalle.representante_nuevo_telefono;
-      await this.abonadoRepository.save(solicitud.abonado);
     }
 
     const guardada = await this.solicitudRepository.save(solicitud);
@@ -412,20 +399,31 @@ export class CambioRepresentanteService {
       await this.detalleRepository.save(detalle);
     }
 
-    // Notificar por correo al abonado y al nuevo representante el resultado
-    // de la solicitud. Aislado en try/catch: el estado ya se guardó, un fallo
-    // de SMTP no debe tumbar la respuesta.
+    // Auditoría obligatoria de cambio de estado en Bitácora
+    const usuarioAutor = await this.userRepository.findOneBy({ id: user.id });
+    const autorEmail = (user as any).email ?? usuarioAutor?.email ?? null;
+
+    await this.bitacoraService.registrarCambioEstado(
+      ModuloBitacora.SOLICITUDES,
+      solicitud.id,
+      { id: user.id, email: autorEmail },
+      estadoAnterior,
+      dto.estado,
+      dto.motivoRechazo || 'Actualización de estado',
+    );
+
+    // Notificación por correo al abonado y al nuevo propietario
     if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {
       try {
-        await this.mailService.enviarCorreoResultadoCambioRepresentante(
+        await this.mailService.enviarCorreoResultadoCambioPropietario(
           solicitud.abonado.correo,
-          detalle.representante_nuevo_correo,
+          detalle.correo_nuevo_propietario,
           {
-            tipo: 'Cambio de representante',
+            tipo: 'Cambio de Propietario (Cesión de Derechos)',
             codigo: solicitud.codigo_solicitud,
             estadoResultado: dto.estado as 'aprobado' | 'rechazado',
             motivo: detalle.motivo_rechazo ?? null,
-            nombreNuevoRepresentante: detalle.representante_nuevo_nombre,
+            nombreNuevoPropietario: detalle.nombre_nuevo_propietario,
           },
         );
       } catch (error) {

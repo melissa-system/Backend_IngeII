@@ -11,7 +11,7 @@ import { CreateAbonadoDto } from './dto/create-abonado.dto';
 import { UpdateAbonadoDto } from './dto/update-abonado.dto';
 import { User } from '../auth/entities/user.entity';
 import { Empleado } from '../empleados/entities/empleado.entity';
-import { Solicitud } from '../solicitudes/entities/solicitud.entity';
+import { Solicitud } from '../solicitudes/common/entities/solicitud.entity';
 import { Averia } from '../averias/entities/averia.entity';
 import { AuthService } from '../auth/auth.service';
 import { BitacoraService } from '../bitacora/bitacora.service';

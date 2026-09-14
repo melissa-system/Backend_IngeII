@@ -14,14 +14,14 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { CambioRepresentanteService } from './solicitudes.cambio-representante.service';
-import { CrearSolicitudCambioRepresentanteDto } from './dto/crear-solicitud-cambio-representante.dto';
-import { ActualizarEstadoSolicitudDto } from './dto/actualizar-estado-solicitud.dto';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { Role } from '../../common/enums/roles.enum';
-import type { RequestUser } from '../auth/strategies/jwt.strategy';
+import { CambioRepresentanteService } from '../services/solicitudes.cambio-representante.service';
+import { CrearSolicitudCambioRepresentanteDto } from '../dto/crear-solicitud-cambio-representante.dto';
+import { ActualizarEstadoSolicitudDto } from '../../common/dto/actualizar-estado-solicitud.dto';
+import { RolesGuard } from '../../../../common/guards/roles.guard';
+import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
+import { Roles } from '../../../../common/decorators/roles.decorator';
+import { Role } from '../../../../common/enums/roles.enum';
+import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
 
 // Solicitudes de cambio de representante legal (solo abonados jurídicos).
 // Accesible por administradores (que la crean para otros, las listan todas y
