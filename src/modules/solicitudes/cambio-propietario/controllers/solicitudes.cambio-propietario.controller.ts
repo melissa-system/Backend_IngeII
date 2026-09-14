@@ -14,28 +14,26 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { SolicitudesCambioMedidorService } from './solicitudes.cambio-medidor.service';
-import { CrearSolicitudCambioMedidorDto } from './dto/crear-solicitud-cambio-medidor.dto';
-import { ActualizarEstadoSolicitudDto } from './dto/actualizar-estado-solicitud.dto';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { Role } from '../../common/enums/roles.enum';
-import type { RequestUser } from '../auth/strategies/jwt.strategy';
+import { SolicitudesCambioPropietarioService } from '../services/solicitudes.cambio-propietario.service';
+import { CrearSolicitudCambioPropietarioDto } from '../dto/crear-solicitud-cambio-propietario.dto';
+import { ActualizarEstadoSolicitudDto } from '../../common/dto/actualizar-estado-solicitud.dto';
+import { RolesGuard } from '../../../../common/guards/roles.guard';
+import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
+import { Roles } from '../../../../common/decorators/roles.decorator';
+import { Role } from '../../../../common/enums/roles.enum';
+import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
 
-// Solicitudes de cambio o reparación de medidor. Accesible por administradores
-// y abonados (con filtro en el service para ver solo las propias).
-@Controller('solicitudes/cambio-medidor')
+@Controller('solicitudes/cambio-propietario')
 @UseGuards(JwtAuthGuard, RolesGuard)
-export class SolicitudesCambioMedidorController {
+export class SolicitudesCambioPropietarioController {
   constructor(
-    private readonly cambioMedidorService: SolicitudesCambioMedidorService,
+    private readonly cambioPropietarioService: SolicitudesCambioPropietarioService,
   ) {}
 
   @Post()
   @Roles(Role.ADMIN, Role.ABONADO)
   @UseInterceptors(
-    FileInterceptor('evidencia', {
+    FileInterceptor('documento_soporte', {
       storage: memoryStorage(),
       limits: { fileSize: 5 * 1024 * 1024 }, // Máx 5MB
       fileFilter: (_req, file, cb) => {
@@ -51,23 +49,23 @@ export class SolicitudesCambioMedidorController {
       },
     }),
   )
-  crear(
-    @Body() dto: CrearSolicitudCambioMedidorDto,
+  async crear(
+    @Body() dto: CrearSolicitudCambioPropietarioDto,
     @UploadedFile() file: Express.Multer.File,
     @Request() req: { user: RequestUser },
   ) {
     if (!file) {
       throw new BadRequestException(
-        'La fotografía o evidencia del medidor es obligatoria',
+        'El documento legal de soporte (escritura o certificación) es obligatorio',
       );
     }
-    return this.cambioMedidorService.crear(dto, file, req.user);
+    return this.cambioPropietarioService.crear(dto, file, req.user);
   }
 
   @Get()
   @Roles(Role.ADMIN, Role.ABONADO)
   listar(@Request() req: { user: RequestUser }) {
-    return this.cambioMedidorService.listar(req.user);
+    return this.cambioPropietarioService.listar(req.user);
   }
 
   @Patch(':id/estado')
@@ -77,6 +75,6 @@ export class SolicitudesCambioMedidorController {
     @Body() dto: ActualizarEstadoSolicitudDto,
     @Request() req: { user: RequestUser },
   ) {
-    return this.cambioMedidorService.cambiarEstado(id, dto, req.user);
+    return this.cambioPropietarioService.cambiarEstado(id, dto, req.user);
   }
 }

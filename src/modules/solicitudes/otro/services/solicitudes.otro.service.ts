@@ -5,22 +5,24 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, Repository } from 'typeorm';
-import { Solicitud } from './entities/solicitud.entity';
-import { SolicitudCambioMedidor } from './entities/solicitud-cambio-medidor.entity';
-import { Abonado } from '../abonados/entities/abonado.entity';
-import { Empleado } from '../empleados/entities/empleado.entity';
-import { MailService } from '../auth/mail.service';
-import { CloudinaryService } from '../../config/cloudinary.service';
-import { CrearSolicitudCambioMedidorDto } from './dto/crear-solicitud-cambio-medidor.dto';
-import { ActualizarEstadoSolicitudDto } from './dto/actualizar-estado-solicitud.dto';
-import type { RequestUser } from '../auth/strategies/jwt.strategy';
+import { Solicitud } from '../../common/entities/solicitud.entity';
+import { SolicitudOtro } from '../entities/solicitud-otro.entity';
+import { Abonado } from '../../../abonados/entities/abonado.entity';
+import { Empleado } from '../../../empleados/entities/empleado.entity';
+import { MailService } from '../../../auth/mail.service';
+import { CloudinaryService } from '../../../../config/cloudinary.service';
+import { CrearSolicitudOtroDto } from '../dto/crear-solicitud-otro.dto';
+import { ActualizarEstadoSolicitudOtroDto } from '../dto/actualizar-estado-solicitud-otro.dto';
+import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
 
-export const TIPO_CAMBIO_MEDIDOR = 'cambio_medidor';
+export const TIPO_OTRO = 'otro';
 
 const ESTADOS_ABIERTOS = ['pendiente', 'en_proceso'];
 const ESTADOS_FINALES = ['aprobado', 'rechazado'];
 
-export interface SolicitudCambioMedidorResponse {
+// Forma "plana" que consume el frontend: junta la fila de solicitudes con el
+// detalle de "otro" y los datos del abonado en un solo objeto.
+export interface SolicitudOtroResponse {
   id: number;
   codigo_solicitud: string;
   id_abonado: number;
@@ -30,10 +32,9 @@ export interface SolicitudCambioMedidorResponse {
   correo: string;
   tipo_solicitud: string;
   estado: string;
-  motivo_falla: string;
-  direccion_exacta: string;
+  asunto: string;
   justificacion: string;
-  evidencia_url: string | null;
+  adjunto_url: string | null;
   motivo_rechazo: string | null;
   id_empleado: number | null;
   fecha_creacion: Date;
@@ -41,12 +42,12 @@ export interface SolicitudCambioMedidorResponse {
 }
 
 @Injectable()
-export class SolicitudesCambioMedidorService {
+export class SolicitudesOtroService {
   constructor(
     @InjectRepository(Solicitud)
     private readonly solicitudRepository: Repository<Solicitud>,
-    @InjectRepository(SolicitudCambioMedidor)
-    private readonly detalleRepository: Repository<SolicitudCambioMedidor>,
+    @InjectRepository(SolicitudOtro)
+    private readonly detalleRepository: Repository<SolicitudOtro>,
     @InjectRepository(Abonado)
     private readonly abonadoRepository: Repository<Abonado>,
     @InjectRepository(Empleado)
@@ -57,8 +58,8 @@ export class SolicitudesCambioMedidorService {
 
   private construirRespuesta(
     solicitud: Solicitud,
-    detalle: SolicitudCambioMedidor,
-  ): SolicitudCambioMedidorResponse {
+    detalle: SolicitudOtro,
+  ): SolicitudOtroResponse {
     return {
       id: solicitud.id,
       codigo_solicitud: solicitud.codigo_solicitud,
@@ -69,10 +70,9 @@ export class SolicitudesCambioMedidorService {
       correo: solicitud.abonado?.correo ?? '',
       tipo_solicitud: solicitud.tipo_solicitud,
       estado: solicitud.estado,
-      motivo_falla: detalle.motivo_falla,
-      direccion_exacta: detalle.direccion_exacta,
+      asunto: detalle.asunto,
       justificacion: detalle.justificacion,
-      evidencia_url: detalle.evidencia_url,
+      adjunto_url: detalle.adjunto_url,
       motivo_rechazo: detalle.motivo_rechazo,
       id_empleado: solicitud.empleado?.id ?? null,
       fecha_creacion: solicitud.fecha_creacion,
@@ -82,9 +82,9 @@ export class SolicitudesCambioMedidorService {
 
   private async cargarCompleta(
     id: number,
-  ): Promise<SolicitudCambioMedidorResponse> {
+  ): Promise<SolicitudOtroResponse> {
     const solicitud = await this.solicitudRepository.findOne({
-      where: { id, tipo_solicitud: TIPO_CAMBIO_MEDIDOR },
+      where: { id, tipo_solicitud: TIPO_OTRO },
       relations: { abonado: true, empleado: true },
     });
     if (!solicitud) {
@@ -95,7 +95,7 @@ export class SolicitudesCambioMedidorService {
     });
     if (!detalle) {
       throw new NotFoundException(
-        'La solicitud no tiene detalle de cambio de medidor',
+        'La solicitud no tiene detalle de trámite "otro"',
       );
     }
     return this.construirRespuesta(solicitud, detalle);
@@ -117,7 +117,7 @@ export class SolicitudesCambioMedidorService {
     const anio = new Date().getFullYear();
     for (;;) {
       const randomNum = Math.floor(1000 + Math.random() * 9000);
-      const codigo = `SOL-MED-${anio}-${randomNum}`;
+      const codigo = `SOL-OTRO-${anio}-${randomNum}`;
       const existente = await this.solicitudRepository.findOneBy({
         codigo_solicitud: codigo,
       });
@@ -126,11 +126,12 @@ export class SolicitudesCambioMedidorService {
   }
 
   async crear(
-    dto: CrearSolicitudCambioMedidorDto,
+    dto: CrearSolicitudOtroDto,
     file: Express.Multer.File,
     user: RequestUser,
-  ): Promise<SolicitudCambioMedidorResponse> {
-    // 1. Resolver abonado (inmutable para rol Abonado, seleccionable para Admin)
+  ): Promise<SolicitudOtroResponse> {
+    // 1. Resolver el abonado: un abonado logueado usa su propio registro; un
+    //    administrador elige el abonado para quien se crea la solicitud.
     let abonado: Abonado | null = null;
     if (user.role === 'abonado') {
       abonado = await this.buscarAbonadoDeUsuario(user.id);
@@ -155,50 +156,47 @@ export class SolicitudesCambioMedidorService {
       );
     }
 
-    // 2. Control de solicitudes duplicadas en curso
+    // 2. Evitar duplicados: máximo una solicitud "otro" abierta (pendiente o
+    //    en proceso) por abonado.
     const duplicada = await this.solicitudRepository.findOne({
       where: {
         abonado: { id: abonado.id },
-        tipo_solicitud: TIPO_CAMBIO_MEDIDOR,
+        tipo_solicitud: TIPO_OTRO,
         estado: In(ESTADOS_ABIERTOS),
       },
     });
     if (duplicada) {
       throw new BadRequestException(
-        `Ya existe una solicitud de cambio de medidor en curso (${duplicada.codigo_solicitud}). Espera a que se resuelva.`,
+        `Ya existe una solicitud en curso (${duplicada.codigo_solicitud}). Espera a que se resuelva antes de crear otra.`,
       );
     }
 
-    // 3. Subir la fotografía a Cloudinary
-    const uploadResult = await this.cloudinaryService.subirArchivo(
-      file,
-      'solicitudes/cambio-medidor',
-    );
+    // 3. Archivo de soporte opcional: solo se sube a Cloudinary si llegó uno.
+    const adjunto = file
+      ? await this.cloudinaryService.subirArchivo(file, 'solicitudes/otro')
+      : null;
 
-    // 4. Asignar empleado si es gestión en ventanilla
+    // 4. Quien crea siendo empleado queda asociado a la solicitud.
     const empleado =
       user.role === 'abonado'
         ? null
         : await this.buscarEmpleadoDeUsuario(user.id);
 
-    // 5. Guardar la cabecera en `solicitudes`
     const solicitud = this.solicitudRepository.create({
       codigo_solicitud: await this.generarCodigoUnico(),
       abonado,
-      tipo_solicitud: TIPO_CAMBIO_MEDIDOR,
+      tipo_solicitud: TIPO_OTRO,
       estado: 'pendiente',
       empleado,
     });
     const guardada = await this.solicitudRepository.save(solicitud);
 
-    // 6. Guardar el detalle técnico con la URL de Cloudinary
     const detalle = this.detalleRepository.create({
       solicitud: guardada,
-      motivo_falla: dto.motivoFalla,
-      direccion_exacta: dto.direccionExacta.trim(),
+      asunto: dto.asunto.trim(),
       justificacion: dto.justificacion.trim(),
-      evidencia_url: uploadResult.url,
-      evidencia_public_id: uploadResult.publicId,
+      adjunto_url: adjunto?.url ?? null,
+      adjunto_public_id: adjunto?.publicId ?? null,
       motivo_rechazo: null,
     });
     await this.detalleRepository.save(detalle);
@@ -206,9 +204,10 @@ export class SolicitudesCambioMedidorService {
     return this.cargarCompleta(guardada.id);
   }
 
-  async listar(user: RequestUser): Promise<SolicitudCambioMedidorResponse[]> {
+  async listar(user: RequestUser): Promise<SolicitudOtroResponse[]> {
+    // Un abonado solo ve sus propias solicitudes; un administrador las ve todas.
     const donde: FindOptionsWhere<Solicitud> = {
-      tipo_solicitud: TIPO_CAMBIO_MEDIDOR,
+      tipo_solicitud: TIPO_OTRO,
     };
     if (user.role === 'abonado') {
       const abonado = await this.buscarAbonadoDeUsuario(user.id);
@@ -240,62 +239,68 @@ export class SolicitudesCambioMedidorService {
 
   async cambiarEstado(
     id: number,
-    dto: ActualizarEstadoSolicitudDto,
+    dto: ActualizarEstadoSolicitudOtroDto,
     user: RequestUser,
-  ): Promise<SolicitudCambioMedidorResponse> {
+  ): Promise<SolicitudOtroResponse> {
     const solicitud = await this.solicitudRepository.findOne({
-      where: { id, tipo_solicitud: TIPO_CAMBIO_MEDIDOR },
+      where: { id, tipo_solicitud: TIPO_OTRO },
       relations: { abonado: true, empleado: true },
     });
     if (!solicitud) {
       throw new NotFoundException('La solicitud no fue encontrada');
     }
-
     const detalle = await this.detalleRepository.findOneBy({
       solicitud: { id: solicitud.id },
     });
     if (!detalle) {
       throw new NotFoundException(
-        'La solicitud no tiene detalle de cambio de medidor',
+        'La solicitud no tiene detalle de trámite "otro"',
       );
     }
 
     if (ESTADOS_FINALES.includes(solicitud.estado)) {
       throw new BadRequestException(
-        'La solicitud ya está cerrada y no admite más cambios',
+        'La solicitud ya está cerrada (aprobada o rechazada) y no admite más cambios',
       );
     }
 
+    // Quien gestiona, sea quien la creó o quién la resuelve, queda asociado.
     const empleado = await this.buscarEmpleadoDeUsuario(user.id);
     if (empleado) {
       solicitud.empleado = empleado;
     }
 
     solicitud.estado = dto.estado;
-    if (dto.estado === 'rechazado') {
+
+    // Al aprobar o rechazar el comentario del administrador es obligatorio:
+    // queda documentada la resolución en motivo_rechazo. Este tipo NO actualiza
+    // nada del abonado, solo se registra la nota y se notifica por correo.
+    if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {
       detalle.motivo_rechazo = dto.motivoRechazo?.trim() || null;
     }
 
     const guardada = await this.solicitudRepository.save(solicitud);
-    if (dto.estado === 'rechazado') {
+    if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {
       await this.detalleRepository.save(detalle);
     }
 
-    // Notificación por correo electrónico
+    // Notificar por correo al abonado el resultado y el comentario del
+    // administrador. Aislado en try/catch: el estado ya se guardó, un fallo
+    // de SMTP no debe tumbar la respuesta.
     if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {
       try {
-        await this.mailService.enviarCorreoResultadoSolicitud(
+        await this.mailService.enviarCorreoResultadoOtro(
           solicitud.abonado.correo,
           {
-            tipo: 'Cambio o reparación de medidor',
             codigo: solicitud.codigo_solicitud,
             estadoResultado: dto.estado as 'aprobado' | 'rechazado',
-            motivo: detalle.motivo_rechazo ?? null,
+            asunto: detalle.asunto,
+            comentario: detalle.motivo_rechazo ?? null,
           },
         );
       } catch (error) {
         console.error(
-          `Error al notificar por correo solicitud ${solicitud.codigo_solicitud}:`,
+          `No se pudo notificar por correo el resultado de la solicitud ${solicitud.codigo_solicitud}:`,
           error,
         );
       }

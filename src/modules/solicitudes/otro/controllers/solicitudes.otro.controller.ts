@@ -14,14 +14,14 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { SolicitudesOtroService } from './solicitudes.otro.service';
-import { CrearSolicitudOtroDto } from './dto/crear-solicitud-otro.dto';
-import { ActualizarEstadoSolicitudOtroDto } from './dto/actualizar-estado-solicitud-otro.dto';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { Role } from '../../common/enums/roles.enum';
-import type { RequestUser } from '../auth/strategies/jwt.strategy';
+import { SolicitudesOtroService } from '../services/solicitudes.otro.service';
+import { CrearSolicitudOtroDto } from '../dto/crear-solicitud-otro.dto';
+import { ActualizarEstadoSolicitudOtroDto } from '../dto/actualizar-estado-solicitud-otro.dto';
+import { RolesGuard } from '../../../../common/guards/roles.guard';
+import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
+import { Roles } from '../../../../common/decorators/roles.decorator';
+import { Role } from '../../../../common/enums/roles.enum';
+import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
 
 // Solicitudes de trámite "otro": una categoría abierta para lo que no encaja
 // en los tipos predefinidos. Accesible por administradores (que la crean para

@@ -5,25 +5,22 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, Repository } from 'typeorm';
-import { Solicitud } from './entities/solicitud.entity';
-import { SolicitudCambioDomicilio } from './entities/solicitud-cambio-domicilio.entity';
-import { Abonado } from '../abonados/entities/abonado.entity';
-import { Empleado } from '../empleados/entities/empleado.entity';
-import { User } from '../auth/entities/user.entity';
-import { HistorialAbonado } from '../abonados/entities/historial-abonado.entity';
-import { MailService } from '../auth/mail.service';
-import { CrearSolicitudCambioDomicilioDto } from './dto/crear-solicitud-cambio-domicilio.dto';
-import { ActualizarEstadoSolicitudDto } from './dto/actualizar-estado-solicitud.dto';
-import type { RequestUser } from '../auth/strategies/jwt.strategy';
+import { Solicitud } from '../../common/entities/solicitud.entity';
+import { SolicitudCambioMedidor } from '../entities/solicitud-cambio-medidor.entity';
+import { Abonado } from '../../../abonados/entities/abonado.entity';
+import { Empleado } from '../../../empleados/entities/empleado.entity';
+import { MailService } from '../../../auth/mail.service';
+import { CloudinaryService } from '../../../../config/cloudinary.service';
+import { CrearSolicitudCambioMedidorDto } from '../dto/crear-solicitud-cambio-medidor.dto';
+import { ActualizarEstadoSolicitudDto } from '../../common/dto/actualizar-estado-solicitud.dto';
+import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
 
-export const TIPO_CAMBIO_DOMICILIO = 'cambio_domicilio';
+export const TIPO_CAMBIO_MEDIDOR = 'cambio_medidor';
 
 const ESTADOS_ABIERTOS = ['pendiente', 'en_proceso'];
 const ESTADOS_FINALES = ['aprobado', 'rechazado'];
 
-// Forma "plana" que consume el frontend: junta la fila de solicitudes con el
-// detalle de cambio de domicilio y los datos del abonado en un solo objeto.
-export interface SolicitudCambioDomicilioResponse {
+export interface SolicitudCambioMedidorResponse {
   id: number;
   codigo_solicitud: string;
   id_abonado: number;
@@ -33,9 +30,10 @@ export interface SolicitudCambioDomicilioResponse {
   correo: string;
   tipo_solicitud: string;
   estado: string;
-  direccion_anterior: string;
-  direccion_nueva: string;
+  motivo_falla: string;
+  direccion_exacta: string;
   justificacion: string;
+  evidencia_url: string | null;
   motivo_rechazo: string | null;
   id_empleado: number | null;
   fecha_creacion: Date;
@@ -43,27 +41,24 @@ export interface SolicitudCambioDomicilioResponse {
 }
 
 @Injectable()
-export class CambioDomicilioService {
+export class SolicitudesCambioMedidorService {
   constructor(
     @InjectRepository(Solicitud)
     private readonly solicitudRepository: Repository<Solicitud>,
-    @InjectRepository(SolicitudCambioDomicilio)
-    private readonly detalleRepository: Repository<SolicitudCambioDomicilio>,
+    @InjectRepository(SolicitudCambioMedidor)
+    private readonly detalleRepository: Repository<SolicitudCambioMedidor>,
     @InjectRepository(Abonado)
     private readonly abonadoRepository: Repository<Abonado>,
     @InjectRepository(Empleado)
     private readonly empleadoRepository: Repository<Empleado>,
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
-    @InjectRepository(HistorialAbonado)
-    private readonly historialRepository: Repository<HistorialAbonado>,
+    private readonly cloudinaryService: CloudinaryService,
     private readonly mailService: MailService,
   ) {}
 
   private construirRespuesta(
     solicitud: Solicitud,
-    detalle: SolicitudCambioDomicilio,
-  ): SolicitudCambioDomicilioResponse {
+    detalle: SolicitudCambioMedidor,
+  ): SolicitudCambioMedidorResponse {
     return {
       id: solicitud.id,
       codigo_solicitud: solicitud.codigo_solicitud,
@@ -74,9 +69,10 @@ export class CambioDomicilioService {
       correo: solicitud.abonado?.correo ?? '',
       tipo_solicitud: solicitud.tipo_solicitud,
       estado: solicitud.estado,
-      direccion_anterior: detalle.direccion_anterior,
-      direccion_nueva: detalle.direccion_nueva,
+      motivo_falla: detalle.motivo_falla,
+      direccion_exacta: detalle.direccion_exacta,
       justificacion: detalle.justificacion,
+      evidencia_url: detalle.evidencia_url,
       motivo_rechazo: detalle.motivo_rechazo,
       id_empleado: solicitud.empleado?.id ?? null,
       fecha_creacion: solicitud.fecha_creacion,
@@ -86,10 +82,9 @@ export class CambioDomicilioService {
 
   private async cargarCompleta(
     id: number,
-    tipo: string = TIPO_CAMBIO_DOMICILIO,
-  ): Promise<SolicitudCambioDomicilioResponse> {
+  ): Promise<SolicitudCambioMedidorResponse> {
     const solicitud = await this.solicitudRepository.findOne({
-      where: { id, tipo_solicitud: tipo },
+      where: { id, tipo_solicitud: TIPO_CAMBIO_MEDIDOR },
       relations: { abonado: true, empleado: true },
     });
     if (!solicitud) {
@@ -100,7 +95,7 @@ export class CambioDomicilioService {
     });
     if (!detalle) {
       throw new NotFoundException(
-        'La solicitud no tiene detalle de cambio de domicilio',
+        'La solicitud no tiene detalle de cambio de medidor',
       );
     }
     return this.construirRespuesta(solicitud, detalle);
@@ -122,7 +117,7 @@ export class CambioDomicilioService {
     const anio = new Date().getFullYear();
     for (;;) {
       const randomNum = Math.floor(1000 + Math.random() * 9000);
-      const codigo = `SOL-CD-${anio}-${randomNum}`;
+      const codigo = `SOL-MED-${anio}-${randomNum}`;
       const existente = await this.solicitudRepository.findOneBy({
         codigo_solicitud: codigo,
       });
@@ -131,11 +126,11 @@ export class CambioDomicilioService {
   }
 
   async crear(
-    dto: CrearSolicitudCambioDomicilioDto,
+    dto: CrearSolicitudCambioMedidorDto,
+    file: Express.Multer.File,
     user: RequestUser,
-  ): Promise<SolicitudCambioDomicilioResponse> {
-    // 1. Resolver el abonado: un abonado logueado usa su propio registro; un
-    //    administrador elige el abonado para quien se crea la solicitud.
+  ): Promise<SolicitudCambioMedidorResponse> {
+    // 1. Resolver abonado (inmutable para rol Abonado, seleccionable para Admin)
     let abonado: Abonado | null = null;
     if (user.role === 'abonado') {
       abonado = await this.buscarAbonadoDeUsuario(user.id);
@@ -160,58 +155,50 @@ export class CambioDomicilioService {
       );
     }
 
-    // 2. La dirección nueva debe ser distinta de la actual (se copia
-    //    automáticamente como direccion_anterior).
-    const direccionAnterior = abonado.direccion;
-    const direccionNueva = String(dto.direccionNueva).trim();
-    if (direccionNueva === '') {
-      throw new BadRequestException('La dirección nueva es obligatoria');
-    }
-    if (
-      direccionNueva.localeCompare(direccionAnterior, undefined, {
-        sensitivity: 'base',
-      }) === 0
-    ) {
-      throw new BadRequestException(
-        'La dirección nueva debe ser distinta de la dirección actual',
-      );
-    }
-
-    // 3. Evitar duplicados: máximo una solicitud de cambio de domicilio
-    //    abierta (pendiente o en proceso) por abonado.
+    // 2. Control de solicitudes duplicadas en curso
     const duplicada = await this.solicitudRepository.findOne({
       where: {
         abonado: { id: abonado.id },
-        tipo_solicitud: TIPO_CAMBIO_DOMICILIO,
+        tipo_solicitud: TIPO_CAMBIO_MEDIDOR,
         estado: In(ESTADOS_ABIERTOS),
       },
     });
     if (duplicada) {
       throw new BadRequestException(
-        `Ya existe una solicitud de cambio de domicilio en curso (${duplicada.codigo_solicitud}). Espera a que se resuelva antes de crear otra.`,
+        `Ya existe una solicitud de cambio de medidor en curso (${duplicada.codigo_solicitud}). Espera a que se resuelva.`,
       );
     }
 
-    // 4. Quien crea la solicitud siendo empleado queda asociado a ella.
+    // 3. Subir la fotografía a Cloudinary
+    const uploadResult = await this.cloudinaryService.subirArchivo(
+      file,
+      'solicitudes/cambio-medidor',
+    );
+
+    // 4. Asignar empleado si es gestión en ventanilla
     const empleado =
       user.role === 'abonado'
         ? null
         : await this.buscarEmpleadoDeUsuario(user.id);
 
+    // 5. Guardar la cabecera en `solicitudes`
     const solicitud = this.solicitudRepository.create({
       codigo_solicitud: await this.generarCodigoUnico(),
       abonado,
-      tipo_solicitud: TIPO_CAMBIO_DOMICILIO,
+      tipo_solicitud: TIPO_CAMBIO_MEDIDOR,
       estado: 'pendiente',
       empleado,
     });
     const guardada = await this.solicitudRepository.save(solicitud);
 
+    // 6. Guardar el detalle técnico con la URL de Cloudinary
     const detalle = this.detalleRepository.create({
       solicitud: guardada,
-      direccion_anterior: direccionAnterior,
-      direccion_nueva: direccionNueva,
-      justificacion: String(dto.justificacion).trim(),
+      motivo_falla: dto.motivoFalla,
+      direccion_exacta: dto.direccionExacta.trim(),
+      justificacion: dto.justificacion.trim(),
+      evidencia_url: uploadResult.url,
+      evidencia_public_id: uploadResult.publicId,
       motivo_rechazo: null,
     });
     await this.detalleRepository.save(detalle);
@@ -219,10 +206,9 @@ export class CambioDomicilioService {
     return this.cargarCompleta(guardada.id);
   }
 
-  async listar(user: RequestUser): Promise<SolicitudCambioDomicilioResponse[]> {
-    // Un abonado solo ve sus propias solicitudes; un administrador las ve todas.
+  async listar(user: RequestUser): Promise<SolicitudCambioMedidorResponse[]> {
     const donde: FindOptionsWhere<Solicitud> = {
-      tipo_solicitud: TIPO_CAMBIO_DOMICILIO,
+      tipo_solicitud: TIPO_CAMBIO_MEDIDOR,
     };
     if (user.role === 'abonado') {
       const abonado = await this.buscarAbonadoDeUsuario(user.id);
@@ -256,30 +242,30 @@ export class CambioDomicilioService {
     id: number,
     dto: ActualizarEstadoSolicitudDto,
     user: RequestUser,
-  ): Promise<SolicitudCambioDomicilioResponse> {
+  ): Promise<SolicitudCambioMedidorResponse> {
     const solicitud = await this.solicitudRepository.findOne({
-      where: { id, tipo_solicitud: TIPO_CAMBIO_DOMICILIO },
+      where: { id, tipo_solicitud: TIPO_CAMBIO_MEDIDOR },
       relations: { abonado: true, empleado: true },
     });
     if (!solicitud) {
       throw new NotFoundException('La solicitud no fue encontrada');
     }
+
     const detalle = await this.detalleRepository.findOneBy({
       solicitud: { id: solicitud.id },
     });
     if (!detalle) {
       throw new NotFoundException(
-        'La solicitud no tiene detalle de cambio de domicilio',
+        'La solicitud no tiene detalle de cambio de medidor',
       );
     }
 
     if (ESTADOS_FINALES.includes(solicitud.estado)) {
       throw new BadRequestException(
-        'La solicitud ya está cerrada (aprobada o rechazada) y no admite más cambios',
+        'La solicitud ya está cerrada y no admite más cambios',
       );
     }
 
-    // Quien gestiona, sea quien la creó o quién la resuelve, queda asociado.
     const empleado = await this.buscarEmpleadoDeUsuario(user.id);
     if (empleado) {
       solicitud.empleado = empleado;
@@ -290,47 +276,26 @@ export class CambioDomicilioService {
       detalle.motivo_rechazo = dto.motivoRechazo?.trim() || null;
     }
 
-    // Al aprobar, la dirección del abonado pasa a ser la dirección nueva y se
-    // registra en el historial del abonado (mismo patrón que AbonadosService).
-    // Si se rechaza, no se modifica nada del abonado.
-    if (dto.estado === 'aprobado') {
-      const usuario = await this.userRepository.findOneBy({ id: user.id });
-      const email = usuario?.email ?? `usuario-${user.id}`;
-      await this.historialRepository.save(
-        this.historialRepository.create({
-          abonado: { id: solicitud.abonado.id },
-          usuario_email: email,
-          campo: 'direccion',
-          valor_anterior: detalle.direccion_anterior,
-          valor_nuevo: detalle.direccion_nueva,
-        }),
-      );
-      solicitud.abonado.direccion = detalle.direccion_nueva;
-      await this.abonadoRepository.save(solicitud.abonado);
-    }
-
     const guardada = await this.solicitudRepository.save(solicitud);
     if (dto.estado === 'rechazado') {
       await this.detalleRepository.save(detalle);
     }
 
-    // Notificar por correo al abonado el resultado de su solicitud. Aislado
-    // en try/catch: el estado ya se guardó, un fallo de SMTP no debe tumbar
-    // la respuesta.
+    // Notificación por correo electrónico
     if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {
       try {
         await this.mailService.enviarCorreoResultadoSolicitud(
           solicitud.abonado.correo,
           {
-            tipo: 'Cambio de domicilio',
+            tipo: 'Cambio o reparación de medidor',
             codigo: solicitud.codigo_solicitud,
-            estadoResultado: dto.estado,
+            estadoResultado: dto.estado as 'aprobado' | 'rechazado',
             motivo: detalle.motivo_rechazo ?? null,
           },
         );
       } catch (error) {
         console.error(
-          `No se pudo notificar por correo el resultado de la solicitud ${solicitud.codigo_solicitud}:`,
+          `Error al notificar por correo solicitud ${solicitud.codigo_solicitud}:`,
           error,
         );
       }

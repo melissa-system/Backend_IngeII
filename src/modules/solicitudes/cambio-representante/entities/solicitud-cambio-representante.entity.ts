@@ -5,7 +5,7 @@ import {
   OneToOne,
   JoinColumn,
 } from 'typeorm';
-import { Solicitud } from './solicitud.entity';
+import { Solicitud } from '../../common/entities/solicitud.entity';
 
 // Detalle específico del tipo "cambio de representante". Se une a solicitudes
 // por id_solicitud (OneToOne): cada solicitud de cambio de representante tiene
