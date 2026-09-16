@@ -14,6 +14,9 @@ import { CloudinaryService } from '../../../../config/cloudinary.service';
 import { CrearSolicitudOtroDto } from '../dto/crear-solicitud-otro.dto';
 import { ActualizarEstadoSolicitudOtroDto } from '../dto/actualizar-estado-solicitud-otro.dto';
 import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
+import { BitacoraService } from '../../../bitacora/bitacora.service';
+import { ModuloBitacora } from '../../../bitacora/entities/bitacora.enums';
+import { User } from '../../../auth/entities/user.entity';
 
 export const TIPO_OTRO = 'otro';
 
@@ -43,6 +46,11 @@ export interface SolicitudOtroResponse {
 
 @Injectable()
 export class SolicitudesOtroService {
+  // OJO: el orden importa. Cada @InjectRepository() aplica al parámetro que
+  // tiene INMEDIATAMENTE debajo. Los servicios (BitacoraService,
+  // CloudinaryService, MailService) NO llevan decorador y por eso van
+  // agrupados al final, para no quedar "pegados" a un @InjectRepository
+  // que no les corresponde.
   constructor(
     @InjectRepository(Solicitud)
     private readonly solicitudRepository: Repository<Solicitud>,
@@ -52,8 +60,11 @@ export class SolicitudesOtroService {
     private readonly abonadoRepository: Repository<Abonado>,
     @InjectRepository(Empleado)
     private readonly empleadoRepository: Repository<Empleado>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
     private readonly cloudinaryService: CloudinaryService,
     private readonly mailService: MailService,
+    private readonly bitacoraService: BitacoraService,
   ) {}
 
   private construirRespuesta(
@@ -80,9 +91,7 @@ export class SolicitudesOtroService {
     };
   }
 
-  private async cargarCompleta(
-    id: number,
-  ): Promise<SolicitudOtroResponse> {
+  private async cargarCompleta(id: number): Promise<SolicitudOtroResponse> {
     const solicitud = await this.solicitudRepository.findOne({
       where: { id, tipo_solicitud: TIPO_OTRO },
       relations: { abonado: true, empleado: true },
@@ -111,6 +120,14 @@ export class SolicitudesOtroService {
     return this.empleadoRepository.findOne({
       where: { usuario: { id: usuarioId } },
     });
+  }
+
+  // Correo del usuario autenticado. RequestUser solo trae el id, así que se
+  // consulta en la BD: la bitácora guarda el correo para conservar quién hizo
+  // la acción aunque después se elimine la cuenta.
+  private async correoDeUsuario(usuarioId: number): Promise<string | null> {
+    const usuario = await this.userRepository.findOneBy({ id: usuarioId });
+    return usuario?.email ?? null;
   }
 
   private async generarCodigoUnico(): Promise<string> {
@@ -201,6 +218,16 @@ export class SolicitudesOtroService {
     });
     await this.detalleRepository.save(detalle);
 
+    // 5. Auditar la creación, para que la bitácora muestre el ciclo completo
+    // de la solicitud (creada → en proceso → aprobada/rechazada) y no solo
+    // los cambios de estado.
+    await this.bitacoraService.registrarCreacion(
+      ModuloBitacora.SOLICITUDES,
+      guardada.id,
+      { id: user.id, email: await this.correoDeUsuario(user.id) },
+      `Solicitud ${guardada.codigo_solicitud} creada: ${detalle.asunto}`,
+    );
+
     return this.cargarCompleta(guardada.id);
   }
 
@@ -264,6 +291,10 @@ export class SolicitudesOtroService {
       );
     }
 
+    // Se guarda antes de sobrescribir solicitud.estado, para poder
+    // registrar en bitácora de dónde venía.
+    const estadoAnterior = solicitud.estado;
+
     // Quien gestiona, sea quien la creó o quién la resuelve, queda asociado.
     const empleado = await this.buscarEmpleadoDeUsuario(user.id);
     if (empleado) {
@@ -283,6 +314,19 @@ export class SolicitudesOtroService {
     if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {
       await this.detalleRepository.save(detalle);
     }
+
+    // Auditoría del cambio de estado en la bitácora general.
+    // Va después del save: solo se audita lo que efectivamente quedó
+    // guardado. Si el save falla, no debe quedar un registro de algo
+    // que nunca pasó.
+    await this.bitacoraService.registrarCambioEstado(
+      ModuloBitacora.SOLICITUDES,
+      solicitud.id,
+      { id: user.id, email: await this.correoDeUsuario(user.id) },
+      estadoAnterior,
+      dto.estado,
+      dto.motivoRechazo?.trim() || 'Actualización de estado',
+    );
 
     // Notificar por correo al abonado el resultado y el comentario del
     // administrador. Aislado en try/catch: el estado ya se guardó, un fallo

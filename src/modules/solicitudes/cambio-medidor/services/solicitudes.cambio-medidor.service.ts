@@ -14,6 +14,9 @@ import { CloudinaryService } from '../../../../config/cloudinary.service';
 import { CrearSolicitudCambioMedidorDto } from '../dto/crear-solicitud-cambio-medidor.dto';
 import { ActualizarEstadoSolicitudDto } from '../../common/dto/actualizar-estado-solicitud.dto';
 import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
+import { BitacoraService } from '../../../bitacora/bitacora.service';
+import { ModuloBitacora } from '../../../bitacora/entities/bitacora.enums';
+import { User } from '../../../auth/entities/user.entity';
 
 export const TIPO_CAMBIO_MEDIDOR = 'cambio_medidor';
 
@@ -51,8 +54,11 @@ export class SolicitudesCambioMedidorService {
     private readonly abonadoRepository: Repository<Abonado>,
     @InjectRepository(Empleado)
     private readonly empleadoRepository: Repository<Empleado>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
     private readonly cloudinaryService: CloudinaryService,
     private readonly mailService: MailService,
+    private readonly bitacoraService: BitacoraService,
   ) {}
 
   private construirRespuesta(
@@ -111,6 +117,14 @@ export class SolicitudesCambioMedidorService {
     return this.empleadoRepository.findOne({
       where: { usuario: { id: usuarioId } },
     });
+  }
+
+  // Correo del usuario autenticado. RequestUser solo trae el id, así que se
+  // consulta en la BD: la bitácora guarda el correo para conservar quién hizo
+  // la acción aunque después se elimine la cuenta.
+  private async correoDeUsuario(usuarioId: number): Promise<string | null> {
+    const usuario = await this.userRepository.findOneBy({ id: usuarioId });
+    return usuario?.email ?? null;
   }
 
   private async generarCodigoUnico(): Promise<string> {
@@ -203,6 +217,16 @@ export class SolicitudesCambioMedidorService {
     });
     await this.detalleRepository.save(detalle);
 
+    // 7. Auditar la creación, para que la bitácora muestre el ciclo completo
+    // de la solicitud (creada → en proceso → aprobada/rechazada) y no solo
+    // los cambios de estado.
+    await this.bitacoraService.registrarCreacion(
+      ModuloBitacora.SOLICITUDES,
+      guardada.id,
+      { id: user.id, email: await this.correoDeUsuario(user.id) },
+      `Solicitud de cambio de medidor ${guardada.codigo_solicitud} creada`,
+    );
+
     return this.cargarCompleta(guardada.id);
   }
 
@@ -266,6 +290,10 @@ export class SolicitudesCambioMedidorService {
       );
     }
 
+    // Se guarda antes de sobrescribir solicitud.estado, para poder
+    // registrar en bitácora de dónde venía.
+    const estadoAnterior = solicitud.estado;
+
     const empleado = await this.buscarEmpleadoDeUsuario(user.id);
     if (empleado) {
       solicitud.empleado = empleado;
@@ -280,6 +308,19 @@ export class SolicitudesCambioMedidorService {
     if (dto.estado === 'rechazado') {
       await this.detalleRepository.save(detalle);
     }
+
+    // Auditoría del cambio de estado en la bitácora general.
+    // Va después del save: solo se audita lo que efectivamente quedó
+    // guardado. Si el save falla, no debe quedar un registro de algo
+    // que nunca pasó.
+    await this.bitacoraService.registrarCambioEstado(
+      ModuloBitacora.SOLICITUDES,
+      solicitud.id,
+      { id: user.id, email: await this.correoDeUsuario(user.id) },
+      estadoAnterior,
+      dto.estado,
+      dto.motivoRechazo?.trim() || 'Actualización de estado',
+    );
 
     // Notificación por correo electrónico
     if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {

@@ -10,12 +10,13 @@ import { SolicitudCambioRepresentante } from '../entities/solicitud-cambio-repre
 import { Abonado } from '../../../abonados/entities/abonado.entity';
 import { Empleado } from '../../../empleados/entities/empleado.entity';
 import { User } from '../../../auth/entities/user.entity';
-import { HistorialAbonado } from '../../../abonados/entities/historial-abonado.entity';
 import { MailService } from '../../../auth/mail.service';
 import { CloudinaryService } from '../../../../config/cloudinary.service';
 import { CrearSolicitudCambioRepresentanteDto } from '../dto/crear-solicitud-cambio-representante.dto';
 import { ActualizarEstadoSolicitudDto } from '../../common/dto/actualizar-estado-solicitud.dto';
 import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
+import { BitacoraService } from '../../../bitacora/bitacora.service';
+import { ModuloBitacora } from '../../../bitacora/entities/bitacora.enums';
 
 export const TIPO_CAMBIO_REPRESENTANTE = 'cambio_representante';
 
@@ -62,10 +63,9 @@ export class CambioRepresentanteService {
     private readonly empleadoRepository: Repository<Empleado>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-    @InjectRepository(HistorialAbonado)
-    private readonly historialRepository: Repository<HistorialAbonado>,
     private readonly cloudinaryService: CloudinaryService,
     private readonly mailService: MailService,
+    private readonly bitacoraService: BitacoraService,
   ) {}
 
   private construirRespuesta(
@@ -130,6 +130,14 @@ export class CambioRepresentanteService {
     return this.empleadoRepository.findOne({
       where: { usuario: { id: usuarioId } },
     });
+  }
+
+  // Correo del usuario autenticado. RequestUser solo trae el id, así que se
+  // consulta en la BD: la bitácora guarda el correo para conservar quién hizo
+  // la acción aunque después se elimine la cuenta.
+  private async correoDeUsuario(usuarioId: number): Promise<string | null> {
+    const usuario = await this.userRepository.findOneBy({ id: usuarioId });
+    return usuario?.email ?? null;
   }
 
   private async generarCodigoUnico(): Promise<string> {
@@ -253,7 +261,8 @@ export class CambioRepresentanteService {
       representante_nuevo_cedula: dto.representanteNuevoCedula.trim(),
       representante_nuevo_direccion: dto.representanteNuevoDireccion.trim(),
       representante_nuevo_correo: dto.representanteNuevoCorreo?.trim() || null,
-      representante_nuevo_telefono: dto.representanteNuevoTelefono?.trim() || null,
+      representante_nuevo_telefono:
+        dto.representanteNuevoTelefono?.trim() || null,
       justificacion: dto.justificacion.trim(),
       copia_cedula_url: uploadResult.url,
       copia_cedula_public_id: uploadResult.publicId,
@@ -271,10 +280,22 @@ export class CambioRepresentanteService {
       throw error;
     }
 
+    // 7. Auditar la creación, para que la bitácora muestre el ciclo completo
+    // de la solicitud (creada → en proceso → aprobada/rechazada) y no solo
+    // los cambios de estado.
+    await this.bitacoraService.registrarCreacion(
+      ModuloBitacora.SOLICITUDES,
+      guardada.id,
+      { id: user.id, email: await this.correoDeUsuario(user.id) },
+      `Solicitud de cambio de representante ${guardada.codigo_solicitud} creada`,
+    );
+
     return this.cargarCompleta(guardada.id);
   }
 
-  async listar(user: RequestUser): Promise<SolicitudCambioRepresentanteResponse[]> {
+  async listar(
+    user: RequestUser,
+  ): Promise<SolicitudCambioRepresentanteResponse[]> {
     // Un abonado solo ve sus propias solicitudes; un administrador las ve todas.
     const donde: FindOptionsWhere<Solicitud> = {
       tipo_solicitud: TIPO_CAMBIO_REPRESENTANTE,
@@ -334,6 +355,11 @@ export class CambioRepresentanteService {
       );
     }
 
+    // Se guarda antes de sobrescribir solicitud.estado, para poder
+    // registrar en bitácora de dónde venía.
+    const estadoAnterior = solicitud.estado;
+    const autorEmail = await this.correoDeUsuario(user.id);
+
     // Quien gestiona, sea quien la creó o quién la resuelve, queda asociado.
     const empleado = await this.buscarEmpleadoDeUsuario(user.id);
     if (empleado) {
@@ -346,7 +372,7 @@ export class CambioRepresentanteService {
     }
 
     // Al aprobar, el abonado jurídico adopta los datos del nuevo representante
-    // y se registra en el historial del abonado. Si se rechaza, no se modifica
+    // y ese cambio queda auditado en la bitácora. Si se rechaza, no se modifica
     // nada del abonado.
     if (dto.estado === 'aprobado') {
       const juridico = solicitud.abonado.juridico;
@@ -355,9 +381,6 @@ export class CambioRepresentanteService {
           'El abonado no tiene un representante legal registrado',
         );
       }
-
-      const usuario = await this.userRepository.findOneBy({ id: user.id });
-      const email = usuario?.email ?? `usuario-${user.id}`;
 
       const cambios = [
         {
@@ -387,16 +410,16 @@ export class CambioRepresentanteService {
         },
       ];
 
-      await this.historialRepository.save(
-        cambios.map((c) =>
-          this.historialRepository.create({
-            abonado: { id: solicitud.abonado.id },
-            usuario_email: email,
-            campo: c.campo,
-            valor_anterior: c.valor_anterior,
-            valor_nuevo: c.valor_nuevo,
-          }),
-        ),
+      // Estos cambios son del ABONADO, no de la solicitud: por eso se
+      // registran bajo ModuloBitacora.ABONADOS y con el id del abonado.
+      // Así aparecen en GET /abonados/:id/historial junto al resto de sus
+      // movimientos, igual que si un administrador los hubiera editado a
+      // mano desde el módulo de abonados.
+      await this.bitacoraService.registrarEdicion(
+        ModuloBitacora.ABONADOS,
+        solicitud.abonado.id,
+        { id: user.id, email: autorEmail },
+        cambios,
       );
 
       juridico.nombre_representante_legal = detalle.representante_nuevo_nombre;
@@ -411,6 +434,16 @@ export class CambioRepresentanteService {
     if (dto.estado === 'rechazado') {
       await this.detalleRepository.save(detalle);
     }
+
+    // Auditoría del cambio de estado de la SOLICITUD en la bitácora general.
+    await this.bitacoraService.registrarCambioEstado(
+      ModuloBitacora.SOLICITUDES,
+      solicitud.id,
+      { id: user.id, email: autorEmail },
+      estadoAnterior,
+      dto.estado,
+      dto.motivoRechazo?.trim() || 'Actualización de estado',
+    );
 
     // Notificar por correo al abonado y al nuevo representante el resultado
     // de la solicitud. Aislado en try/catch: el estado ya se guardó, un fallo

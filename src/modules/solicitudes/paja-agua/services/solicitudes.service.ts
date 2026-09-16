@@ -4,6 +4,8 @@ import { Repository } from 'typeorm';
 import { SolicitudPajaAgua } from '../entities/solicitud-paja-agua.entity';
 import { CreateSolicitudPajaAguaDto } from '../dto/create-solicitud-paja-agua.dto';
 import { CloudinaryService } from '../../../../config/cloudinary.service';
+import { BitacoraService } from '../../../bitacora/bitacora.service';
+import { ModuloBitacora } from '../../../bitacora/entities/bitacora.enums';
 
 // Ventana de tiempo para considerar una solicitud como duplicada (10 minutos)
 const VENTANA_DUPLICADO_MINUTOS = 10;
@@ -17,6 +19,7 @@ export class SolicitudesService {
     @InjectRepository(SolicitudPajaAgua)
     private readonly solicitudRepository: Repository<SolicitudPajaAgua>,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly bitacoraService: BitacoraService,
   ) {}
 
   async create(
@@ -27,6 +30,7 @@ export class SolicitudesService {
       cedulaFrente?: Express.Multer.File[];
       cedulaDorso?: Express.Multer.File[];
     },
+    
   ): Promise<SolicitudPajaAgua> {
     // 0. Evitar duplicidad: si ya existe una solicitud reciente con la misma
     // identificación, no se registra otra en un periodo corto de tiempo.
@@ -110,7 +114,26 @@ export class SolicitudesService {
       });
 
       // 2c. Guardar en MySQL
-      return await this.solicitudRepository.save(nuevaSolicitud);
+      const guardada = await this.solicitudRepository.save(nuevaSolicitud);
+
+      // 2d. Auditar la creación en la bitácora general.
+      //
+      // Esta solicitud llega del formulario público, SIN sesión iniciada: en
+      // ese momento el solicitante todavía no es usuario ni abonado del
+      // sistema. Por eso el autor va con id null y el correo que escribió en
+      // el formulario, que es el único dato de contacto que lo identifica.
+      //
+      // Va después del save y no lanza excepción si falla (ver
+      // BitacoraService): si la auditoría falla, la solicitud ya quedó
+      // registrada igual y el solicitante no pierde su trámite.
+      await this.bitacoraService.registrarCreacion(
+        ModuloBitacora.SOLICITUDES,
+        guardada.id,
+        { id: null, email: datosSolicitud.correo },
+        `Solicitud de paja de agua ${guardada.codigo_solicitud} creada desde el formulario público`,
+      );
+
+      return guardada;
     } catch (error) {
       // Rollback: la solicitud no se guardó, así que sus archivos no deben
       // quedarse en la nube. eliminarArchivo no lanza excepción si falla, así
