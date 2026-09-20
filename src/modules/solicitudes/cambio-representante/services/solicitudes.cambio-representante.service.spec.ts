@@ -65,6 +65,7 @@ describe('CambioRepresentanteService', () => {
   let historialRepository: any;
   let cloudinaryService: any;
   let mailService: any;
+  let bitacoraService: any;
 
   // Datos semilla.
   let abonados: any[];
@@ -231,15 +232,21 @@ describe('CambioRepresentanteService', () => {
       enviarCorreoResultadoCambioRepresentante: jest.fn(() => Promise.resolve()),
     };
 
+    bitacoraService = {
+      registrarCreacion: jest.fn(() => Promise.resolve()),
+      registrarCambioEstado: jest.fn(() => Promise.resolve()),
+      registrarEdicion: jest.fn(() => Promise.resolve()),
+    };
+
     service = new CambioRepresentanteService(
       solicitudRepository as unknown as any,
       detalleRepository as unknown as any,
       abonadoRepository as unknown as any,
       empleadoRepository as unknown as any,
       userRepository as unknown as any,
-      historialRepository as unknown as any,
       cloudinaryService as unknown as CloudinaryService,
       mailService as unknown as MailService,
+      bitacoraService as unknown as any,
     );
   });
 
@@ -484,11 +491,11 @@ describe('CambioRepresentanteService', () => {
       expect(abonadoJuridico.juridico.representante_correo).toBe('maria@nuevo.test');
       expect(abonadoJuridico.juridico.representante_telefono).toBe('8888-7777');
 
-      // 5 cambios registrados en el historial del abonado.
-      expect(historialRepository.save).toHaveBeenCalledTimes(1);
-      const cambios: any[] = historialRepository.save.mock.calls[0][0];
+      // 5 cambios registrados en la bitácora del abonado.
+      expect(bitacoraService.registrarEdicion).toHaveBeenCalledTimes(1);
+      const cambios: any[] = bitacoraService.registrarEdicion.mock.calls[0][3];
       expect(cambios).toHaveLength(5);
-      expect(cambios.map((c) => c.campo)).toEqual([
+      expect(cambios.map((c: any) => c.campo)).toEqual([
         'nombre_representante_legal',
         'cedula_representante',
         'representante_direccion',
