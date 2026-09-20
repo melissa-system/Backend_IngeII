@@ -7,6 +7,7 @@ import {
   Body,
   UseGuards,
   ParseIntPipe,
+  Request,
 } from '@nestjs/common';
 import { AveriasService } from './averias.service';
 import { CreateAveriaDto } from './dto/create-averia.dto';
@@ -15,6 +16,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/roles.enum';
+import type { RequestUser } from '../auth/strategies/jwt.strategy';
 
 @Controller('averias')
 export class AveriasController {
@@ -23,6 +25,13 @@ export class AveriasController {
   @Post()
   create(@Body() createAveriaDto: CreateAveriaDto) {
     return this.averiasService.create(createAveriaDto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Get('mis-averias')
+  @Roles(Role.ABONADO)
+  misAverias(@Request() req: { user?: RequestUser }) {
+    return this.averiasService.misAverias(req.user!);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
