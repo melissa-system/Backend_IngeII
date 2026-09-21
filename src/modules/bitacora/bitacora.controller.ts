@@ -19,11 +19,12 @@ import { Role } from '../../common/enums/roles.enum';
 // propios módulos cuando ejecutan una operación. Una bitácora que se puede
 // modificar desde fuera no sirve como auditoría.
 //
-// Todo el controlador está restringido a personal administrativo: la
-// bitácora expone quién hizo qué en todo el sistema.
+// Todo el controlador está restringido a la Junta Directiva (SUPER_ADMIN):
+// la bitácora expone quién hizo qué en todo el sistema y el Administrador no
+// tiene acceso, igual que en el menú del frontend.
 @Controller('bitacora')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN, Role.SUPER_ADMIN)
+@Roles(Role.SUPER_ADMIN)
 export class BitacoraController {
   constructor(private readonly bitacoraService: BitacoraService) {}
 

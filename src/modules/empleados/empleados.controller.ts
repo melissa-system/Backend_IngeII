@@ -24,9 +24,15 @@ export class EmpleadosController {
 
   // Las rutas que modifican datos reciben el usuario autenticado para dejar
   // registrado en la bitácora quién hizo cada movimiento.
+  //
+  // La gestión de empleados es exclusiva de la Junta Directiva (SUPER_ADMIN);
+  // por eso casi todos los endpoints están en Role.SUPER_ADMIN. La excepción
+  // es GET /empleados (listado): se mantiene en Role.ADMIN porque la pantalla
+  // de Averías del Administrador lo usa para mostrar los fontaneros
+  // disponibles al asignar una avería.
 
   @Post()
-  @Roles(Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN)
   crear(
     @Body() body: {
       nombre: string;
@@ -50,25 +56,25 @@ export class EmpleadosController {
   }
 
   @Get('usuarios')
-  @Roles(Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN)
   listarUsuarios() {
     return this.empleadosService.listarUsuarios();
   }
 
   @Get('usuarios/por-email')
-  @Roles(Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN)
   buscarUsuarioPorEmail(@Query('email') email: string) {
     return this.empleadosService.buscarUsuarioPorEmail(email);
   }
 
   @Get(':id')
-  @Roles(Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN)
   obtenerPorId(@Param('id', ParseIntPipe) id: number) {
     return this.empleadosService.obtenerPorId(id);
   }
 
   @Patch(':id')
-  @Roles(Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN)
   actualizar(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: {
@@ -87,7 +93,7 @@ export class EmpleadosController {
   }
 
   @Patch(':id/estado')
-  @Roles(Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN)
   cambiarEstado(
     @Param('id', ParseIntPipe) id: number,
     @Body('estado') estado: 'Activo' | 'Inactivo',
@@ -97,7 +103,7 @@ export class EmpleadosController {
   }
 
   @Post(':id/vincular-cuenta')
-  @Roles(Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN)
   vincularCuenta(
     @Param('id', ParseIntPipe) id: number,
     @Request() req: { user?: RequestUser },
