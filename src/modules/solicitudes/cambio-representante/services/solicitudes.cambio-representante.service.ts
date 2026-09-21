@@ -39,7 +39,7 @@ export interface SolicitudCambioRepresentanteResponse {
   representante_anterior_cedula: string;
   representante_nuevo_nombre: string;
   representante_nuevo_cedula: string;
-  representante_nuevo_direccion: string;
+  representante_nuevo_direccion: string | null;
   representante_nuevo_correo: string | null;
   representante_nuevo_telefono: string | null;
   copia_cedula_url: string | null;
@@ -259,7 +259,7 @@ export class CambioRepresentanteService {
       representante_anterior_cedula: representanteAnteriorCedula,
       representante_nuevo_nombre: dto.representanteNuevoNombre.trim(),
       representante_nuevo_cedula: dto.representanteNuevoCedula.trim(),
-      representante_nuevo_direccion: dto.representanteNuevoDireccion.trim(),
+      representante_nuevo_direccion: dto.representanteNuevoDireccion?.trim() ?? null,
       representante_nuevo_correo: dto.representanteNuevoCorreo?.trim() || null,
       representante_nuevo_telefono:
         dto.representanteNuevoTelefono?.trim() || null,
@@ -393,11 +393,15 @@ export class CambioRepresentanteService {
           valor_anterior: juridico.cedula_representante,
           valor_nuevo: detalle.representante_nuevo_cedula,
         },
-        {
-          campo: 'representante_direccion',
-          valor_anterior: juridico.representante_direccion,
-          valor_nuevo: detalle.representante_nuevo_direccion,
-        },
+        ...(detalle.representante_nuevo_direccion
+          ? [
+              {
+                campo: 'representante_direccion' as const,
+                valor_anterior: juridico.representante_direccion,
+                valor_nuevo: detalle.representante_nuevo_direccion,
+              },
+            ]
+          : []),
         {
           campo: 'representante_correo',
           valor_anterior: juridico.representante_correo,
@@ -424,7 +428,9 @@ export class CambioRepresentanteService {
 
       juridico.nombre_representante_legal = detalle.representante_nuevo_nombre;
       juridico.cedula_representante = detalle.representante_nuevo_cedula;
-      juridico.representante_direccion = detalle.representante_nuevo_direccion;
+      if (detalle.representante_nuevo_direccion) {
+        juridico.representante_direccion = detalle.representante_nuevo_direccion;
+      }
       juridico.representante_correo = detalle.representante_nuevo_correo;
       juridico.representante_telefono = detalle.representante_nuevo_telefono;
       await this.abonadoRepository.save(solicitud.abonado);

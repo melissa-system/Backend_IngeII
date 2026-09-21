@@ -965,7 +965,12 @@ export class AuthService {
           }
         : null,
       abonado: abonado
-        ? { id: abonado.id, nombre: abonado.nombre, numero_abonado: abonado.numero_abonado }
+        ? {
+            id: abonado.id,
+            nombre: abonado.nombre,
+            numero_abonado: abonado.numero_abonado,
+            tipo_abonado: abonado.tipo_abonado,
+          }
         : null,
     };
 

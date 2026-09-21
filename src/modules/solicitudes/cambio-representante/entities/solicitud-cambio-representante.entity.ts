@@ -35,8 +35,8 @@ export class SolicitudCambioRepresentante {
   @Column({ type: 'varchar', length: 100 })
   representante_nuevo_cedula: string;
 
-  @Column({ type: 'text' })
-  representante_nuevo_direccion: string;
+  @Column({ type: 'text', nullable: true })
+  representante_nuevo_direccion: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   representante_nuevo_correo: string | null;

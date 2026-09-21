@@ -56,11 +56,6 @@ export class SolicitudesCambioMedidorController {
     @UploadedFile() file: Express.Multer.File,
     @Request() req: { user: RequestUser },
   ) {
-    if (!file) {
-      throw new BadRequestException(
-        'La fotografía o evidencia del medidor es obligatoria',
-      );
-    }
     return this.cambioMedidorService.crear(dto, file, req.user);
   }
 
