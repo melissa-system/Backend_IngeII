@@ -407,11 +407,15 @@ export class CambioRepresentanteService {
           valor_anterior: juridico.representante_correo,
           valor_nuevo: detalle.representante_nuevo_correo,
         },
-        {
-          campo: 'representante_telefono',
-          valor_anterior: juridico.representante_telefono,
-          valor_nuevo: detalle.representante_nuevo_telefono,
-        },
+        ...(detalle.representante_nuevo_telefono
+          ? [
+              {
+                campo: 'representante_telefono' as const,
+                valor_anterior: juridico.representante_telefono,
+                valor_nuevo: detalle.representante_nuevo_telefono,
+              },
+            ]
+          : []),
       ];
 
       // Estos cambios son del ABONADO, no de la solicitud: por eso se
@@ -432,7 +436,9 @@ export class CambioRepresentanteService {
         juridico.representante_direccion = detalle.representante_nuevo_direccion;
       }
       juridico.representante_correo = detalle.representante_nuevo_correo;
-      juridico.representante_telefono = detalle.representante_nuevo_telefono;
+      if (detalle.representante_nuevo_telefono) {
+        juridico.representante_telefono = detalle.representante_nuevo_telefono;
+      }
       await this.abonadoRepository.save(solicitud.abonado);
     }
 
