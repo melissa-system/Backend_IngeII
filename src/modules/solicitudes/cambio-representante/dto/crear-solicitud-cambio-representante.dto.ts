@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Length,
   Matches,
   Min,
 } from 'class-validator';
@@ -37,11 +38,9 @@ export class CrearSolicitudCambioRepresentanteDto {
   })
   representanteNuevoCedula: string;
 
-  @IsNotEmpty({
-    message: 'La dirección del nuevo representante es obligatoria',
-  })
+  @IsOptional()
   @IsString({ message: 'La dirección debe ser texto' })
-  representanteNuevoDireccion: string;
+  representanteNuevoDireccion?: string;
 
   @IsOptional()
   @IsEmail({}, { message: 'El correo del nuevo representante no es válido' })
@@ -53,5 +52,8 @@ export class CrearSolicitudCambioRepresentanteDto {
 
   @IsNotEmpty({ message: 'La justificación es obligatoria' })
   @IsString({ message: 'La justificación debe ser texto' })
+  @Length(10, 255, {
+    message: 'La justificación debe tener entre 10 y 255 caracteres',
+  })
   justificacion: string;
 }

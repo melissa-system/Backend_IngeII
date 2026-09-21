@@ -141,7 +141,7 @@ export class SolicitudesCambioMedidorService {
 
   async crear(
     dto: CrearSolicitudCambioMedidorDto,
-    file: Express.Multer.File,
+    file: Express.Multer.File | undefined,
     user: RequestUser,
   ): Promise<SolicitudCambioMedidorResponse> {
     // 1. Resolver abonado (inmutable para rol Abonado, seleccionable para Admin)
@@ -183,11 +183,13 @@ export class SolicitudesCambioMedidorService {
       );
     }
 
-    // 3. Subir la fotografía a Cloudinary
-    const uploadResult = await this.cloudinaryService.subirArchivo(
-      file,
-      'solicitudes/cambio-medidor',
-    );
+    // 3. Subir la fotografía a Cloudinary (opcional)
+    const uploadResult = file
+      ? await this.cloudinaryService.subirArchivo(
+          file,
+          'solicitudes/cambio-medidor',
+        )
+      : null;
 
     // 4. Asignar empleado si es gestión en ventanilla
     const empleado =
@@ -205,14 +207,14 @@ export class SolicitudesCambioMedidorService {
     });
     const guardada = await this.solicitudRepository.save(solicitud);
 
-    // 6. Guardar el detalle técnico con la URL de Cloudinary
+    // 6. Guardar el detalle técnico con la URL de Cloudinary (si hay evidencia)
     const detalle = this.detalleRepository.create({
       solicitud: guardada,
       motivo_falla: dto.motivoFalla,
       direccion_exacta: dto.direccionExacta.trim(),
       justificacion: dto.justificacion.trim(),
-      evidencia_url: uploadResult.url,
-      evidencia_public_id: uploadResult.publicId,
+      evidencia_url: uploadResult?.url ?? null,
+      evidencia_public_id: uploadResult?.publicId ?? null,
       motivo_rechazo: null,
     });
     await this.detalleRepository.save(detalle);

@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Averia } from './entities/averia.entity';
@@ -10,8 +6,10 @@ import { HistorialAveria } from './entities/historial-averia.entity';
 import { CreateAveriaDto } from './dto/create-averia.dto';
 import { UpdateAveriaDto } from './dto/update-averia.dto';
 import { Empleado } from '../empleados/entities/empleado.entity';
+import { Abonado } from '../abonados/entities/abonado.entity';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { ModuloBitacora, AccionBitacora } from '../bitacora/entities/bitacora.enums';
+import type { RequestUser } from '../auth/strategies/jwt.strategy';
 
 @Injectable()
 export class AveriasService {
@@ -22,6 +20,8 @@ export class AveriasService {
     private readonly historialRepository: Repository<HistorialAveria>,
     @InjectRepository(Empleado)
     private readonly empleadoRepository: Repository<Empleado>,
+    @InjectRepository(Abonado)
+    private readonly abonadoRepository: Repository<Abonado>,
     private readonly bitacoraService: BitacoraService,
   ) {}
 
@@ -67,6 +67,30 @@ export class AveriasService {
         await this.armarHistorial(averia.id);
     }
  
+    return averias;
+  }
+
+  async misAverias(user: RequestUser): Promise<Averia[]> {
+    const abonado = await this.abonadoRepository.findOne({
+      where: { usuario: { id: user.id } },
+    });
+    if (!abonado) {
+      throw new NotFoundException(
+        'No se encontró un abonado vinculado a esta cuenta',
+      );
+    }
+
+    const averias = await this.averiaRepository.find({
+      where: { cedula_reportante: abonado.cedula },
+      relations: { empleado: true },
+      order: { fecha_reporte: 'DESC' },
+    });
+
+    for (const averia of averias) {
+      (averia as unknown as Record<string, unknown>).historial =
+        await this.armarHistorial(averia.id);
+    }
+
     return averias;
   }
 
@@ -126,6 +150,17 @@ export class AveriasService {
         throw new BadRequestException(
           `Estado inválido. Valores permitidos: ${estadosValidos.join(', ')}`,
         );
+      }
+
+      // No se permite cambiar a "En proceso" o "Finalizado" sin un fontanero asignado.
+      const estadosQueRequierenFontanero = ['En proceso', 'Finalizado'];
+      if (estadosQueRequierenFontanero.includes(dto.estado)) {
+        const tieneFontanero = dto.empleado_id || averia.empleado;
+        if (!tieneFontanero) {
+          throw new BadRequestException(
+            'No se puede cambiar el estado a "' + dto.estado + '" sin antes asignar un fontanero a la avería.',
+          );
+        }
       }
 
       await this.bitacoraService.registrarCambioEstado(
