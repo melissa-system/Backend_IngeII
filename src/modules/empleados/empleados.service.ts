@@ -10,6 +10,11 @@ import { User } from '../auth/entities/user.entity';
 import { Abonado } from '../abonados/entities/abonado.entity';
 import { AuthService } from '../auth/auth.service';
 import { Role } from '../../common/enums/roles.enum';
+import { BitacoraService } from '../bitacora/bitacora.service';
+import {
+  ModuloBitacora,
+  AccionBitacora,
+} from '../bitacora/entities/bitacora.enums';
 
 export interface EmpleadoPlano {
   id: number;
@@ -25,8 +30,23 @@ export interface EmpleadoPlano {
   email: string | null;
 }
 
+// Campos del empleado que se auditan al editar. usuario_id no está acá: la
+// vinculación de cuenta se registra aparte, con el correo en vez del id, que
+// es lo que le sirve a quien lee la bitácora.
+const CAMPOS_AUDITABLES = [
+  'nombre',
+  'cedula',
+  'puesto',
+  'telefono',
+  'correo',
+  'fecha_ingreso',
+];
+
 @Injectable()
 export class EmpleadosService {
+  // OJO con el orden: cada @InjectRepository() aplica al parámetro que tiene
+  // INMEDIATAMENTE debajo. Los servicios no llevan decorador y van agrupados
+  // al final, para no quedar pegados a un @InjectRepository ajeno.
   constructor(
     @InjectRepository(Empleado)
     private readonly empleadoRepository: Repository<Empleado>,
@@ -35,7 +55,17 @@ export class EmpleadosService {
     @InjectRepository(Abonado)
     private readonly abonadoRepository: Repository<Abonado>,
     private readonly authService: AuthService,
+    private readonly bitacoraService: BitacoraService,
   ) {}
+
+  // Autor de un movimiento para la bitácora. RequestUser solo trae el id, así
+  // que el correo se busca en la BD: la bitácora lo guarda para conservar
+  // quién hizo la acción aunque después se elimine la cuenta.
+  private async autorDe(usuarioId?: number) {
+    if (!usuarioId) return null;
+    const usuario = await this.userRepository.findOneBy({ id: usuarioId });
+    return { id: usuarioId, email: usuario?.email ?? null };
+  }
 
   // La cédula se trata como única en todo el sistema (Empleados + Abonados),
   // SALVO que se confirme explícitamente que es la misma persona (mismo
@@ -73,16 +103,19 @@ export class EmpleadosService {
     };
   }
 
-  async crear(datos: {
-    nombre: string;
-    cedula: string;
-    puesto: string;
-    telefono: string;
-    fecha_ingreso: string;
-    usuario_id?: number;
-    email?: string;
-    confirmarVinculacion?: boolean;
-  }): Promise<EmpleadoPlano> {
+  async crear(
+    datos: {
+      nombre: string;
+      cedula: string;
+      puesto: string;
+      telefono: string;
+      fecha_ingreso: string;
+      usuario_id?: number;
+      email?: string;
+      confirmarVinculacion?: boolean;
+    },
+    autorId?: number,
+  ): Promise<EmpleadoPlano> {
     const cedulaExistente = await this.empleadoRepository.findOne({
       where: { cedula: datos.cedula },
     });
@@ -133,6 +166,19 @@ export class EmpleadosService {
     });
 
     const guardado = await this.empleadoRepository.save(empleado);
+
+    const autor = await this.autorDe(autorId);
+    if (autor) {
+      await this.bitacoraService.registrarCreacion(
+        ModuloBitacora.EMPLEADOS,
+        guardado.id,
+        autor,
+        `Empleado ${guardado.nombre} registrado como ${guardado.puesto}${
+          usuario ? ` (cuenta vinculada: ${usuario.email})` : ''
+        }`,
+      );
+    }
+
     return this.aPlano(guardado);
   }
 
@@ -210,6 +256,7 @@ export class EmpleadosService {
       usuario_id?: number | null;
       confirmarVinculacion?: boolean;
     },
+    autorId?: number,
   ): Promise<EmpleadoPlano> {
     const empleado = await this.empleadoRepository.findOne({
       where: { id },
@@ -218,6 +265,11 @@ export class EmpleadosService {
     if (!empleado) {
       throw new NotFoundException(`No se encontró el empleado con id ${id}`);
     }
+
+    // Copia de los valores ANTES de modificar nada: después de las
+    // asignaciones de abajo el original se pierde y ya no se puede comparar.
+    const antes = { ...empleado } as Record<string, unknown>;
+    const correoCuentaAntes = empleado.usuario?.email ?? null;
 
     if (datos.cedula && datos.cedula !== empleado.cedula) {
       const duplicado = await this.empleadoRepository.findOne({
@@ -268,12 +320,54 @@ export class EmpleadosService {
     if (datos.fecha_ingreso !== undefined) empleado.fecha_ingreso = datos.fecha_ingreso;
 
     const guardado = await this.empleadoRepository.save(empleado);
+
+    const autor = await this.autorDe(autorId);
+    if (autor) {
+      // Se compara contra el empleado YA modificado (no contra `datos`),
+      // porque el correo se normaliza a minúsculas antes de guardar: comparar
+      // contra lo que mandó el formulario registraría como cambio un
+      // "Juan@x.com" → "juan@x.com" que en realidad no cambió nada.
+      const cambios = BitacoraService.compararCampos(
+        antes,
+        guardado as unknown as Record<string, unknown>,
+        CAMPOS_AUDITABLES,
+      );
+      if (cambios.length > 0) {
+        await this.bitacoraService.registrarEdicion(
+          ModuloBitacora.EMPLEADOS,
+          guardado.id,
+          autor,
+          cambios,
+        );
+      }
+
+      // La cuenta de acceso vinculada se registra con el correo, no con el
+      // id de usuario: "se vinculó ana@x.com" le dice algo a quien lee la
+      // bitácora; "usuario_id: 7" no.
+      const correoCuentaDespues = guardado.usuario?.email ?? null;
+      if (correoCuentaAntes !== correoCuentaDespues) {
+        await this.bitacoraService.registrar({
+          modulo: ModuloBitacora.EMPLEADOS,
+          registro_id: guardado.id,
+          accion: AccionBitacora.EDICION,
+          autor,
+          campo: 'cuenta_acceso',
+          valor_anterior: correoCuentaAntes,
+          valor_nuevo: correoCuentaDespues,
+          observaciones: correoCuentaDespues
+            ? 'Cuenta de acceso vinculada'
+            : 'Cuenta de acceso desvinculada',
+        });
+      }
+    }
+
     return this.aPlano(guardado);
   }
 
   async cambiarEstado(
     id: number,
     estado: 'Activo' | 'Inactivo',
+    autorId?: number,
   ): Promise<EmpleadoPlano> {
     const empleado = await this.empleadoRepository.findOne({
       where: { id },
@@ -283,8 +377,24 @@ export class EmpleadosService {
       throw new NotFoundException(`No se encontró el empleado con id ${id}`);
     }
 
+    const estadoAnterior = empleado.estado;
     empleado.estado = estado;
     const guardado = await this.empleadoRepository.save(empleado);
+
+    // Solo se registra si el estado realmente cambió: marcar "Activo" a un
+    // empleado que ya estaba activo no es un movimiento.
+    const autor = await this.autorDe(autorId);
+    if (autor && estadoAnterior !== estado) {
+      await this.bitacoraService.registrarCambioEstado(
+        ModuloBitacora.EMPLEADOS,
+        guardado.id,
+        autor,
+        estadoAnterior,
+        estado,
+        `Empleado ${guardado.nombre}`,
+      );
+    }
+
     return this.aPlano(guardado);
   }
 
@@ -310,7 +420,10 @@ export class EmpleadosService {
 
   // Vincula (o crea si no existe) la cuenta de acceso del empleado usando
   // su correo. La cuenta se crea con el rol que corresponda a su puesto.
-  async vincularCuenta(id: number): Promise<{
+  async vincularCuenta(
+    id: number,
+    autorId?: number,
+  ): Promise<{
     mensaje: string;
     empleado: EmpleadoPlano;
   }> {
@@ -344,12 +457,28 @@ export class EmpleadosService {
       );
     }
 
-    await this.authService.crearCuentaParaEmpleado(
-      empleado,
-      this.rolParaPuesto(empleado.puesto),
-    );
+    const rol = this.rolParaPuesto(empleado.puesto);
+    await this.authService.crearCuentaParaEmpleado(empleado, rol);
 
     const actualizado = await this.obtenerPorId(id);
+
+    // Se registra también el ROL con el que quedó la cuenta: es la parte
+    // sensible de esta operación, porque define qué puede hacer esa persona
+    // en el sistema.
+    const autor = await this.autorDe(autorId);
+    if (autor) {
+      await this.bitacoraService.registrar({
+        modulo: ModuloBitacora.EMPLEADOS,
+        registro_id: id,
+        accion: AccionBitacora.EDICION,
+        autor,
+        campo: 'cuenta_acceso',
+        valor_anterior: null,
+        valor_nuevo: correo,
+        observaciones: `Cuenta de acceso vinculada con rol ${rol}`,
+      });
+    }
+
     return {
       mensaje: `Cuenta de acceso vinculada al empleado ${actualizado.nombre}.`,
       empleado: actualizado,
