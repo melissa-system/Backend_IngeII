@@ -45,6 +45,13 @@ describe('DocumentosService', () => {
     subirArchivo: jest.Mock;
     eliminarArchivo: jest.Mock;
   };
+  let userRepository: { findOneBy: jest.Mock };
+  let bitacoraService: {
+    registrarCreacion: jest.Mock;
+    registrarEdicion: jest.Mock;
+    registrarCambioEstado: jest.Mock;
+    registrarEliminacion: jest.Mock;
+  };
 
   // "Base de datos" en memoria muy simple: findOne/find filtran sobre este
   // arreglo según el `where` recibido, igual que haría MySQL.
@@ -114,10 +121,29 @@ describe('DocumentosService', () => {
       eliminarArchivo: jest.fn(() => Promise.resolve()),
     };
 
+    // La auditoría necesita el correo de quien hace cada movimiento: se
+    // simula un único usuario (id 1) con su correo.
+    userRepository = {
+      findOneBy: jest.fn(({ id }: { id: number }) =>
+        Promise.resolve(id === 1 ? { id: 1, email: 'admin@asada.test' } : null),
+      ),
+    };
+
+    bitacoraService = {
+      registrarCreacion: jest.fn(() => Promise.resolve()),
+      registrarEdicion: jest.fn(() => Promise.resolve()),
+      registrarCambioEstado: jest.fn(() => Promise.resolve()),
+      registrarEliminacion: jest.fn(() => Promise.resolve()),
+    };
+
+    // Mismo orden que el constructor de DocumentosService: primero los
+    // repositorios, después los servicios.
     service = new DocumentosService(
       documentoRepository as unknown as any,
+      userRepository as unknown as any,
       empleadosService as unknown as EmpleadosService,
       cloudinaryService as unknown as CloudinaryService,
+      bitacoraService as unknown as any,
     );
   });
 
@@ -364,6 +390,165 @@ describe('DocumentosService', () => {
       expect(ids).toContain(interno.id);
       expect(ids).toContain(publico.id);
       expect(ids).not.toContain(inhabilitadoDoc.id);
+    });
+  });
+
+  // --- Auditoría en la bitácora general ---
+  describe('auditoría en bitácora', () => {
+    const autorEsperado = { id: 1, email: 'admin@asada.test' };
+
+    it('registra la creación con el correo de quien subió el documento', async () => {
+      const doc = await service.create(
+        { nombre: 'Acta febrero', tipo: TipoDocumento.ACTA, visibilidad: VisibilidadDocumento.INTERNO },
+        crearArchivoFalso(),
+        1,
+      );
+
+      expect(bitacoraService.registrarCreacion).toHaveBeenCalledTimes(1);
+      expect(bitacoraService.registrarCreacion).toHaveBeenCalledWith(
+        'documentos',
+        doc.id,
+        autorEsperado,
+        expect.stringContaining('Acta febrero'),
+      );
+    });
+
+    it('sin usuario autenticado guarda el documento pero no registra movimiento', async () => {
+      await service.create(
+        { nombre: 'Sin autor', tipo: TipoDocumento.OTRO, visibilidad: VisibilidadDocumento.INTERNO },
+        crearArchivoFalso(),
+      );
+
+      expect(await service.findAll()).toHaveLength(1);
+      expect(bitacoraService.registrarCreacion).not.toHaveBeenCalled();
+    });
+
+    it('si falla el guardado en la base de datos borra el archivo de la nube y no audita nada', async () => {
+      documentoRepository.save.mockImplementationOnce(() =>
+        Promise.reject(new Error('conexión perdida')),
+      );
+
+      await expect(
+        service.create(
+          { nombre: 'Falla', tipo: TipoDocumento.ACTA, visibilidad: VisibilidadDocumento.INTERNO },
+          crearArchivoFalso(),
+          1,
+        ),
+      ).rejects.toThrow('conexión perdida');
+
+      expect(cloudinaryService.eliminarArchivo).toHaveBeenCalledWith('ASADA/documentos/abc', false);
+      expect(bitacoraService.registrarCreacion).not.toHaveBeenCalled();
+    });
+
+    it('una nueva versión registra la creación de la nueva Y el paso de la anterior a Inhabilitado', async () => {
+      const original = await service.create(
+        { nombre: 'Informe anual', tipo: TipoDocumento.INFORME, visibilidad: VisibilidadDocumento.PUBLICO },
+        crearArchivoFalso(),
+        1,
+      );
+      bitacoraService.registrarCreacion.mockClear();
+
+      const nueva = await service.agregarNuevaVersion(original.id, crearArchivoFalso(), 1);
+
+      expect(bitacoraService.registrarCreacion).toHaveBeenCalledWith(
+        'documentos',
+        nueva.id,
+        autorEsperado,
+        expect.stringContaining('Versión 2'),
+      );
+      expect(bitacoraService.registrarCambioEstado).toHaveBeenCalledWith(
+        'documentos',
+        original.id,
+        autorEsperado,
+        EstadoDocumento.VIGENTE,
+        EstadoDocumento.INHABILITADO,
+        expect.any(String),
+      );
+    });
+
+    it('inhabilitar se registra como cambio de estado, no como edición', async () => {
+      const doc = await service.create(
+        { nombre: 'Comunicado', tipo: TipoDocumento.COMUNICADO, visibilidad: VisibilidadDocumento.PUBLICO },
+        crearArchivoFalso(),
+      );
+
+      await service.update(doc.id, { estado: EstadoDocumento.INHABILITADO }, 1);
+
+      expect(bitacoraService.registrarCambioEstado).toHaveBeenCalledWith(
+        'documentos',
+        doc.id,
+        autorEsperado,
+        EstadoDocumento.VIGENTE,
+        EstadoDocumento.INHABILITADO,
+        expect.any(String),
+      );
+      expect(bitacoraService.registrarEdicion).not.toHaveBeenCalled();
+    });
+
+    it('al editar registra solo los campos que realmente cambiaron', async () => {
+      const doc = await service.create(
+        { nombre: 'Nombre viejo', tipo: TipoDocumento.OTRO, visibilidad: VisibilidadDocumento.INTERNO },
+        crearArchivoFalso(),
+      );
+
+      // La visibilidad llega con el MISMO valor que ya tenía: no es un cambio.
+      await service.update(
+        doc.id,
+        { nombre: 'Nombre nuevo', visibilidad: VisibilidadDocumento.INTERNO },
+        1,
+      );
+
+      expect(bitacoraService.registrarEdicion).toHaveBeenCalledTimes(1);
+      const cambios = bitacoraService.registrarEdicion.mock.calls[0][3];
+      expect(cambios).toEqual([
+        { campo: 'nombre', valor_anterior: 'Nombre viejo', valor_nuevo: 'Nombre nuevo' },
+      ]);
+    });
+
+    it('al eliminar registra el nombre del documento borrado', async () => {
+      const doc = await service.create(
+        { nombre: 'Acta a borrar', tipo: TipoDocumento.ACTA, visibilidad: VisibilidadDocumento.INTERNO },
+        crearArchivoFalso(),
+      );
+
+      await service.remove(doc.id, 1);
+
+      expect(bitacoraService.registrarEliminacion).toHaveBeenCalledWith(
+        'documentos',
+        doc.id,
+        autorEsperado,
+        expect.stringContaining('Acta a borrar'),
+      );
+    });
+
+    it('al eliminar un documento que es imagen lo borra de Cloudinary como imagen', async () => {
+      // Antes el borrado era siempre como archivo "raw": una imagen quedaba
+      // eliminada de la base de datos pero huérfana en la nube.
+      cloudinaryService.subirArchivo.mockImplementationOnce(() =>
+        Promise.resolve({
+          url: 'https://res.cloudinary.com/demo/image/upload/v1/ASADA/documentos/foto.jpg',
+          publicId: 'ASADA/documentos/foto',
+        }),
+      );
+      const doc = await service.create(
+        { nombre: 'Foto medición', tipo: TipoDocumento.MEDICION_ACUEDUCTO, visibilidad: VisibilidadDocumento.INTERNO },
+        crearArchivoFalso({ originalname: 'foto.jpg', mimetype: 'image/jpeg' }),
+      );
+
+      await service.remove(doc.id, 1);
+
+      expect(cloudinaryService.eliminarArchivo).toHaveBeenCalledWith('ASADA/documentos/foto', true);
+    });
+
+    it('al eliminar un PDF lo borra de Cloudinary como archivo raw', async () => {
+      const doc = await service.create(
+        { nombre: 'PDF a borrar', tipo: TipoDocumento.OTRO, visibilidad: VisibilidadDocumento.INTERNO },
+        crearArchivoFalso(),
+      );
+
+      await service.remove(doc.id, 1);
+
+      expect(cloudinaryService.eliminarArchivo).toHaveBeenCalledWith('ASADA/documentos/abc', false);
     });
   });
 });
