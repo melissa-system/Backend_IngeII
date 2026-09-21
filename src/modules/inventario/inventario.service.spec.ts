@@ -99,6 +99,15 @@ describe('InventarioService', () => {
         const filtrados = movimientos.filter((m) => m.articulo?.id === where?.articulo?.id);
         return Promise.resolve(filtrados);
       }),
+      createQueryBuilder: jest.fn(() => {
+        const builder: any = {
+          leftJoinAndSelect: jest.fn().mockReturnThis(),
+          orderBy: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
+          getMany: jest.fn().mockResolvedValue([...movimientos]),
+        };
+        return builder;
+      }),
     };
 
     proveedorRepository = {
@@ -295,6 +304,12 @@ describe('InventarioService', () => {
       );
 
       expect(articulo.cantidad_disponible).toBe(75);
+    });
+
+    it('lista todos los movimientos con filtros aplicados', async () => {
+      const res = await service.listarTodosLosMovimientos({ tipo: 'entrada', busqueda: 'Tubería' });
+      expect(movimientoRepository.createQueryBuilder).toHaveBeenCalled();
+      expect(Array.isArray(res)).toBe(true);
     });
   });
 

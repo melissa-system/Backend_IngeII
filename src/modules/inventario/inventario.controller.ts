@@ -51,6 +51,14 @@ export class InventarioController {
     });
   }
 
+  @Get('movimientos')
+  async listarMovimientos(
+    @Query('tipo') tipo?: string,
+    @Query('busqueda') busqueda?: string,
+  ) {
+    return this.inventarioService.listarTodosLosMovimientos({ tipo, busqueda });
+  }
+
   @Get(':id')
   async obtenerPorId(@Param('id', ParseIntPipe) id: number) {
     return this.inventarioService.obtenerArticuloPorId(id);
