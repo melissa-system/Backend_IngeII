@@ -308,6 +308,32 @@ export class InventarioService {
     });
   }
 
+  async listarTodosLosMovimientos(filtros?: {
+    tipo?: string;
+    busqueda?: string;
+  }): Promise<MovimientoInventario[]> {
+    const query = this.movimientoRepository
+      .createQueryBuilder('movimiento')
+      .leftJoinAndSelect('movimiento.articulo', 'articulo')
+      .orderBy('movimiento.fecha_movimiento', 'DESC');
+
+    if (filtros?.tipo && filtros.tipo !== 'todos' && filtros.tipo !== 'Todos') {
+      query.andWhere('movimiento.tipo_movimiento = :tipo', {
+        tipo: filtros.tipo.toLowerCase(),
+      });
+    }
+
+    if (filtros?.busqueda && filtros.busqueda.trim() !== '') {
+      const q = `%${filtros.busqueda.trim()}%`;
+      query.andWhere(
+        '(articulo.nombre LIKE :q OR movimiento.responsable_destino LIKE :q OR movimiento.motivo LIKE :q)',
+        { q },
+      );
+    }
+
+    return query.getMany();
+  }
+
   async cambiarEstado(
     id: number,
     user: RequestUser,
