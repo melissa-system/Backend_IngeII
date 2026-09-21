@@ -24,6 +24,11 @@ import { Empleado } from '../empleados/entities/empleado.entity';
 import { Abonado } from '../abonados/entities/abonado.entity';
 import { ActualizarPerfilDto } from './dto/actualizar-perfil.dto';
 import { CloudinaryService } from '../../config/cloudinary.service';
+import { BitacoraService } from '../bitacora/bitacora.service';
+import {
+  ModuloBitacora,
+  AccionBitacora,
+} from '../bitacora/entities/bitacora.enums';
 
 @Injectable()
 export class AuthService {
@@ -46,7 +51,17 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly bitacoraService: BitacoraService,
   ) { }
+
+  // Autor de un movimiento para la bitácora. Se consulta el correo en la
+  // BD porque RequestUser solo trae el id, y la bitácora guarda el correo
+  // para conservar quién hizo la acción aunque la cuenta se elimine.
+  private async autorDe(usuarioId?: number) {
+    if (!usuarioId) return { id: null, email: null };
+    const usuario = await this.userRepository.findOneBy({ id: usuarioId });
+    return { id: usuarioId, email: usuario?.email ?? null };
+  }
 
   // Devuelve el usuario solo si existe, está activo y la contraseña coincide.
   async validateUser(email: string, password: string): Promise<User | null> {
@@ -258,6 +273,17 @@ export class AuthService {
       { usuario_id: usuarioId, revoked_at: IsNull() },
       { revoked_at: new Date() },
     );
+    // Solo queda registrado QUE se cambió: nunca el valor, ni hasheado.
+    await this.bitacoraService.registrar({
+      modulo: ModuloBitacora.USUARIOS,
+      registro_id: usuarioId,
+      accion: AccionBitacora.EDICION,
+      autor: { id: usuarioId, email: user.email },
+      campo: 'password',
+      valor_anterior: null,
+      valor_nuevo: null,
+      observaciones: 'Contraseña cambiada por el propio usuario',
+    });
 
     return { mensaje: 'Contraseña actualizada. Inicia sesión nuevamente.' };
   }
@@ -361,6 +387,16 @@ export class AuthService {
     await this.passwordResetTokenRepository.update(fila.id, {
       used_at: new Date(),
     });
+    await this.bitacoraService.registrar({
+      modulo: ModuloBitacora.USUARIOS,
+      registro_id: fila.usuario_id,
+      accion: AccionBitacora.EDICION,
+      autor: { id: fila.usuario_id, email: fila.usuario.email },
+      campo: 'password',
+      valor_anterior: null,
+      valor_nuevo: null,
+      observaciones: 'Contraseña restablecida mediante enlace de recuperación',
+    });
 
     return { mensaje: 'Contraseña actualizada. Inicia sesión nuevamente.' };
   }
@@ -390,6 +426,12 @@ export class AuthService {
       role: rolAbonado,
     });
     await this.userRepository.save(user);
+    await this.bitacoraService.registrarCreacion(
+      ModuloBitacora.USUARIOS,
+      user.id,
+      { id: user.id, email: user.email },
+      'Cuenta creada desde el registro público (pendiente de activación por correo)',
+    );
 
     // Vincular automáticamente con un abonado existente que tenga el mismo
     // correo. Esto conecta la cuenta de acceso con el registro del abonado
@@ -456,6 +498,15 @@ export class AuthService {
     await this.activationTokenRepository.update(fila.id, {
       used_at: new Date(),
     });
+
+    await this.bitacoraService.registrarCambioEstado(
+      ModuloBitacora.USUARIOS,
+      fila.usuario_id,
+      { id: fila.usuario_id, email: fila.usuario?.email ?? null },
+      'inactiva',
+      'activa',
+      'Cuenta activada por el usuario mediante el enlace del correo',
+    );
 
     return {
       mensaje: 'Cuenta activada correctamente. Ya puedes iniciar sesión.',
@@ -565,26 +616,41 @@ export class AuthService {
         'No podés inhabilitar tu propia cuenta. Pedile a otro administrador que lo haga.',
       );
     }
-
+ 
     const user = await this.userRepository.findOne({
       where: { id: usuarioId },
       relations: { role: true },
     });
-
+ 
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
     }
-
+ 
+    const estabaActivo = user.isActive;
     user.isActive = isActive;
     await this.userRepository.save(user);
-
+ 
     if (!isActive) {
       await this.refreshTokenRepository.update(
         { usuario_id: usuarioId, revoked_at: IsNull() },
         { revoked_at: new Date() },
       );
     }
-
+ 
+    // Solo se registra si el estado realmente cambió.
+    if (estabaActivo !== isActive) {
+      await this.bitacoraService.registrarCambioEstado(
+        ModuloBitacora.USUARIOS,
+        user.id,
+        await this.autorDe(solicitanteId),
+        estabaActivo ? 'activa' : 'inactiva',
+        isActive ? 'activa' : 'inactiva',
+        isActive
+          ? `Cuenta ${user.email} reactivada`
+          : `Cuenta ${user.email} inhabilitada (se cerraron todas sus sesiones)`,
+      );
+    }
+ 
     return {
       id: user.id,
       email: user.email,
@@ -595,10 +661,12 @@ export class AuthService {
     };
   }
 
-  // Cambiar el rol asignado a un usuario
+  // Cambiar el rol asignado a un usuario. Es el movimiento más sensible del
+  // módulo: define qué puede hacer esa cuenta en todo el sistema.
   async cambiarRolUsuario(
     usuarioId: number,
     roleId: number,
+    solicitanteId?: number,
   ): Promise<{
     id: number;
     email: string;
@@ -611,22 +679,36 @@ export class AuthService {
       where: { id: usuarioId },
       relations: { role: true },
     });
-
+ 
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
     }
-
+ 
     const nuevoRol = await this.roleRepository.findOne({
       where: { id: roleId },
     });
-
+ 
     if (!nuevoRol) {
       throw new NotFoundException('El rol especificado no existe');
     }
-
+ 
+    const rolAnterior = user.role?.name ?? null;
     user.role = nuevoRol;
     await this.userRepository.save(user);
-
+ 
+    if (rolAnterior !== nuevoRol.name) {
+      await this.bitacoraService.registrar({
+        modulo: ModuloBitacora.USUARIOS,
+        registro_id: user.id,
+        accion: AccionBitacora.EDICION,
+        autor: await this.autorDe(solicitanteId),
+        campo: 'rol',
+        valor_anterior: rolAnterior,
+        valor_nuevo: nuevoRol.name,
+        observaciones: `Rol de ${user.email} modificado`,
+      });
+    }
+ 
     return {
       id: user.id,
       email: user.email,
@@ -641,6 +723,7 @@ export class AuthService {
     email: string,
     passwordPlano: string,
     roleId: number,
+    solicitanteId?: number,
   ): Promise<{
     id: number;
     email: string;
@@ -652,23 +735,23 @@ export class AuthService {
     if (existe) {
       throw new BadRequestException('Ya existe una cuenta con ese correo electrónico');
     }
-
+ 
     const rol = await this.roleRepository.findOne({ where: { id: roleId } });
     if (!rol) {
       throw new BadRequestException('El rol seleccionado no existe en el sistema');
     }
-
+ 
     const passwordHash = await bcrypt.hash(passwordPlano, BCRYPT_COST);
-
+ 
     const nuevoUsuario = this.userRepository.create({
       email,
       password: passwordHash,
       role: rol,
       isActive: true, // Creado por admin nace activo directamente
     });
-
+ 
     const guardado = await this.userRepository.save(nuevoUsuario);
-
+ 
     // Vincular automáticamente con un abonado o empleado que tenga el
     // mismo correo (y que aún no tenga cuenta asociada). Prioridad:
     // primero el abonado, luego el empleado.
@@ -690,7 +773,17 @@ export class AuthService {
         asociacion = 'empleado';
       }
     }
-
+ 
+    // Se registra el rol con el que nace la cuenta y el vínculo automático,
+    // si lo hubo: ambos definen qué puede hacer y a quién representa.
+    await this.bitacoraService.registrarCreacion(
+      ModuloBitacora.USUARIOS,
+      guardado.id,
+      await this.autorDe(solicitanteId),
+      `Cuenta ${guardado.email} creada por un administrador con rol ${rol.name}` +
+        (asociacion ? ` (vinculada automáticamente a un ${asociacion})` : ''),
+    );
+ 
     return {
       id: guardado.id,
       email: guardado.email,
@@ -755,6 +848,14 @@ export class AuthService {
 
     abonado.usuario = usuarioGuardado;
     await this.abonadoRepository.save(abonado);
+    // Creación automática: no hay un usuario autenticado detrás, así que el
+    // autor va vacío y la pantalla de Bitácora lo muestra como "Sistema".
+    await this.bitacoraService.registrarCreacion(
+      ModuloBitacora.USUARIOS,
+      usuarioGuardado.id,
+      { id: null, email: null },
+      `Cuenta ${usuarioGuardado.email} creada automáticamente al registrar al abonado ${abonado.nombre}`,
+    );
 
     const tokenPlano = randomBytes(32).toString('hex');
     // Mismo horizonte que el correo de bienvenida/activación (24h por
@@ -886,6 +987,12 @@ export class AuthService {
 
     empleado.usuario = usuarioGuardado;
     await this.empleadoRepository.save(empleado);
+    await this.bitacoraService.registrarCreacion(
+      ModuloBitacora.USUARIOS,
+      usuarioGuardado.id,
+      { id: null, email: null },
+      `Cuenta ${usuarioGuardado.email} creada automáticamente para el empleado ${empleado.nombre} con rol ${rol}`,
+    );
 
     const tokenPlano = randomBytes(32).toString('hex');
     const horas = Number(
