@@ -19,6 +19,12 @@ export interface CambioCampo {
   valor_nuevo: string | null;
 }
 
+// Desfase horario de la ASADA para interpretar las fechas de los filtros.
+// Costa Rica está en UTC-6 todo el año (no tiene horario de verano), así
+// que un desfase fijo es exacto y además no depende de la zona horaria del
+// servidor donde corra el backend.
+const ZONA_HORARIA_ASADA = '-06:00';
+
 const LIMITE_POR_DEFECTO = 50;
 const LIMITE_MAXIMO = 200;
 
@@ -194,18 +200,25 @@ export class BitacoraService {
     if (filtros.accion) where.accion = filtros.accion;
     if (filtros.usuario_id) where.usuario = { id: filtros.usuario_id };
 
-    // El filtro por fecha incluye ambos días completos: 'desde' arranca a
-    // las 00:00 y 'hasta' termina a las 23:59:59. Sin ese ajuste, filtrar
-    // "hasta hoy" dejaría fuera todo lo que pasó hoy después de medianoche.
+    // El filtro por fecha incluye ambos días completos EN HORA DE COSTA RICA:
+    // 'desde' arranca a las 00:00 y 'hasta' termina a las 23:59:59.999 de ese
+    // día en Costa Rica. Antes los límites se calculaban en UTC (la 'Z'), y
+    // como Costa Rica está 6 horas atrás, filtrar "hasta el 15/09" cortaba a
+    // las 6:00 p. m. hora local: todo lo de esa noche quedaba afuera (ver
+    // bitacora.service.spec.ts).
     if (filtros.desde && filtros.hasta) {
       where.fecha = Between(
-        new Date(`${filtros.desde}T00:00:00.000Z`),
-        new Date(`${filtros.hasta}T23:59:59.999Z`),
+        new Date(`${filtros.desde}T00:00:00.000${ZONA_HORARIA_ASADA}`),
+        new Date(`${filtros.hasta}T23:59:59.999${ZONA_HORARIA_ASADA}`),
       );
     } else if (filtros.desde) {
-      where.fecha = MoreThanOrEqual(new Date(`${filtros.desde}T00:00:00.000Z`));
+      where.fecha = MoreThanOrEqual(
+        new Date(`${filtros.desde}T00:00:00.000${ZONA_HORARIA_ASADA}`),
+      );
     } else if (filtros.hasta) {
-      where.fecha = LessThanOrEqual(new Date(`${filtros.hasta}T23:59:59.999Z`));
+      where.fecha = LessThanOrEqual(
+        new Date(`${filtros.hasta}T23:59:59.999${ZONA_HORARIA_ASADA}`),
+      );
     }
 
     const [datos, total] = await this.bitacoraRepository.findAndCount({
