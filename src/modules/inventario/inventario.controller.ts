@@ -43,11 +43,13 @@ export class InventarioController {
     @Query('busqueda') busqueda?: string,
     @Query('clasificacion') clasificacion?: string,
     @Query('estado') estado?: string,
+    @Query('soloStockBajo') soloStockBajo?: string,
   ) {
     return this.inventarioService.listarArticulos({
       busqueda,
       clasificacion,
       estado,
+      soloStockBajo: soloStockBajo === 'true' || soloStockBajo === '1',
     });
   }
 

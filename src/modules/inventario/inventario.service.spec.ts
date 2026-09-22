@@ -215,15 +215,23 @@ describe('InventarioService', () => {
   });
 
   describe('listarArticulos y obtenerPorId', () => {
-    it('retorna la lista de artículos', async () => {
+    it('retorna la lista de artículos con stockBajo calculado', async () => {
       const res = await service.listarArticulos();
       expect(res).toHaveLength(2);
+      expect(res[0].stockBajo).toBe(false); // 50 > 5
+      expect(res[1].stockBajo).toBe(true);  // 0 <= 5
     });
 
-    it('retorna un artículo por id', async () => {
+    it('aplica el filtro soloStockBajo en la consulta SQL', async () => {
+      await service.listarArticulos({ soloStockBajo: true });
+      expect(articuloRepository.createQueryBuilder).toHaveBeenCalled();
+    });
+
+    it('retorna un artículo por id con stockBajo calculado', async () => {
       const res = await service.obtenerArticuloPorId(1);
       expect(res.id).toBe(1);
       expect(res.nombre).toBe('Tubería PVC 1/2"');
+      expect(res.stockBajo).toBe(false);
     });
 
     it('arroja NotFoundException si no existe el id', async () => {

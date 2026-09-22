@@ -29,6 +29,12 @@ export class CrearArticuloDto {
   cantidad: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'El umbral mínimo debe ser un número entero' })
+  @Min(1, { message: 'El umbral mínimo debe ser al menos 1' })
+  umbralMinimo?: number;
+
+  @IsOptional()
   @IsDateString({}, { message: 'La fecha de ingreso debe tener un formato válido (YYYY-MM-DD)' })
   fechaIngreso?: string;
 
