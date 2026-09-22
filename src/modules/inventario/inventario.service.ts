@@ -52,7 +52,10 @@ export class InventarioService {
   // ARTÍCULOS
   // ------------------------------------------------------------------
 
-  async crearArticulo(dto: CrearArticuloDto, user: RequestUser): Promise<Articulo> {
+  async crearArticulo(
+    dto: CrearArticuloDto,
+    user: RequestUser,
+  ): Promise<Articulo & { stockBajo: boolean }> {
     const proveedor = await this.proveedorRepository.findOne({
       where: { id: dto.proveedorId },
     });
@@ -68,6 +71,7 @@ export class InventarioService {
       descripcion: dto.descripcion,
       clasificacion: dto.clasificacion,
       cantidad_disponible: dto.cantidad,
+      umbral_minimo: dto.umbralMinimo !== undefined ? dto.umbralMinimo : 5,
       fecha_ingreso: dto.fechaIngreso || new Date().toISOString().slice(0, 10),
       ubicacion: dto.ubicacion,
       persona_recibe: dto.personaRecibe,
@@ -99,14 +103,20 @@ export class InventarioService {
       `Artículo "${articuloGuardado.nombre}" creado con stock inicial de ${articuloGuardado.cantidad_disponible} unidades`,
     );
 
-    return articuloGuardado;
+    return {
+      ...articuloGuardado,
+      stockBajo:
+        articuloGuardado.cantidad_disponible <=
+        (articuloGuardado.umbral_minimo ?? 5),
+    };
   }
 
   async listarArticulos(filtros?: {
     busqueda?: string;
     clasificacion?: string;
     estado?: string;
-  }): Promise<Articulo[]> {
+    soloStockBajo?: boolean;
+  }): Promise<(Articulo & { stockBajo: boolean })[]> {
     const query = this.articuloRepository
       .createQueryBuilder('articulo')
       .leftJoinAndSelect('articulo.proveedor', 'proveedor')
@@ -132,10 +142,20 @@ export class InventarioService {
       });
     }
 
-    return query.getMany();
+    if (filtros?.soloStockBajo) {
+      query.andWhere('articulo.cantidad_disponible <= articulo.umbral_minimo');
+    }
+
+    const articulos = await query.getMany();
+    return articulos.map((art) => ({
+      ...art,
+      stockBajo: art.cantidad_disponible <= (art.umbral_minimo ?? 5),
+    }));
   }
 
-  async obtenerArticuloPorId(id: number): Promise<Articulo> {
+  async obtenerArticuloPorId(
+    id: number,
+  ): Promise<Articulo & { stockBajo: boolean }> {
     const articulo = await this.articuloRepository.findOne({
       where: { id },
       relations: { proveedor: true, movimientos: true },
@@ -145,14 +165,17 @@ export class InventarioService {
       throw new NotFoundException(`El artículo con ID #${id} no fue encontrado`);
     }
 
-    return articulo;
+    return {
+      ...articulo,
+      stockBajo: articulo.cantidad_disponible <= (articulo.umbral_minimo ?? 5),
+    };
   }
 
   async actualizarArticulo(
     id: number,
     dto: ActualizarArticuloDto,
     user: RequestUser,
-  ): Promise<Articulo> {
+  ): Promise<Articulo & { stockBajo: boolean }> {
     const articulo = await this.obtenerArticuloPorId(id);
     const { autor } = await this.resolverAutor(user);
 
@@ -171,6 +194,7 @@ export class InventarioService {
       nombre: articulo.nombre,
       descripcion: articulo.descripcion,
       clasificacion: articulo.clasificacion,
+      umbral_minimo: articulo.umbral_minimo,
       ubicacion: articulo.ubicacion,
       persona_recibe: articulo.persona_recibe,
       proveedor_id: articulo.proveedor?.id,
@@ -180,6 +204,7 @@ export class InventarioService {
     if (dto.nombre !== undefined) articulo.nombre = dto.nombre;
     if (dto.descripcion !== undefined) articulo.descripcion = dto.descripcion;
     if (dto.clasificacion !== undefined) articulo.clasificacion = dto.clasificacion;
+    if (dto.umbralMinimo !== undefined) articulo.umbral_minimo = dto.umbralMinimo;
     if (dto.ubicacion !== undefined) articulo.ubicacion = dto.ubicacion;
     if (dto.personaRecibe !== undefined) articulo.persona_recibe = dto.personaRecibe;
     if (dto.estado !== undefined) articulo.estado = dto.estado;
@@ -191,6 +216,7 @@ export class InventarioService {
       nombre: actualizado.nombre,
       descripcion: actualizado.descripcion,
       clasificacion: actualizado.clasificacion,
+      umbral_minimo: actualizado.umbral_minimo,
       ubicacion: actualizado.ubicacion,
       persona_recibe: actualizado.persona_recibe,
       proveedor_id: actualizado.proveedor?.id,
@@ -201,6 +227,7 @@ export class InventarioService {
       'nombre',
       'descripcion',
       'clasificacion',
+      'umbral_minimo',
       'ubicacion',
       'persona_recibe',
       'proveedor_id',
@@ -216,14 +243,21 @@ export class InventarioService {
       );
     }
 
-    return actualizado;
+    return {
+      ...actualizado,
+      stockBajo:
+        actualizado.cantidad_disponible <= (actualizado.umbral_minimo ?? 5),
+    };
   }
 
   async registrarMovimiento(
     id: number,
     dto: RegistrarMovimientoDto,
     user: RequestUser,
-  ): Promise<{ articulo: Articulo; movimiento: MovimientoInventario }> {
+  ): Promise<{
+    articulo: Articulo & { stockBajo: boolean };
+    movimiento: MovimientoInventario;
+  }> {
     const { autor, nombre: nombreRegistro } = await this.resolverAutor(user);
 
     return await this.dataSource.transaction(async (manager) => {
@@ -290,7 +324,12 @@ export class InventarioService {
       });
 
       return {
-        articulo: articuloActualizado,
+        articulo: {
+          ...articuloActualizado,
+          stockBajo:
+            articuloActualizado.cantidad_disponible <=
+            (articuloActualizado.umbral_minimo ?? 5),
+        },
         movimiento: movimientoGuardado,
       };
     });

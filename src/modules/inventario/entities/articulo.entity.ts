@@ -28,6 +28,9 @@ export class Articulo {
   @Column({ type: 'int', default: 0 })
   cantidad_disponible: number;
 
+  @Column({ type: 'int', default: 5 })
+  umbral_minimo: number;
+
   @Column({ type: 'date', default: () => '(CURRENT_DATE)' })
   fecha_ingreso: string;
 
