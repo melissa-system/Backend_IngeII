@@ -55,6 +55,19 @@ export interface SolicitudConexionResponse {
   correo: string;
   estado: string;
   solicitud_paja_agua_codigo: string;
+  // Snapshot de la solicitud original (sección I y III del formulario):
+  // se necesitan para el documento de conexión sin tener que consultar la
+  // solicitud de paja de agua por separado.
+  tipo_persona: string;
+  nombre_solicitante: string;
+  identificacion_solicitante: string;
+  telefono_solicitante: string;
+  provincia: string | null;
+  canton: string | null;
+  distrito: string | null;
+  direccion_inmueble: string;
+  naturaleza_inmueble: string | null;
+  calidad_titular: string | null;
   medio_notificacion_principal: string;
   valor_notificacion_principal: string;
   medio_notificacion_secundario: string | null;
@@ -144,6 +157,16 @@ export class SolicitudesConexionService {
       estado: solicitud.estado,
       solicitud_paja_agua_codigo:
         detalle.solicitudPajaAgua?.codigo_solicitud ?? '',
+      tipo_persona: detalle.solicitudPajaAgua?.tipo_persona ?? 'fisica',
+      nombre_solicitante: detalle.solicitudPajaAgua?.nombre_solicitante ?? '',
+      identificacion_solicitante: detalle.solicitudPajaAgua?.identificacion ?? '',
+      telefono_solicitante: detalle.solicitudPajaAgua?.telefono ?? '',
+      provincia: detalle.solicitudPajaAgua?.provincia ?? null,
+      canton: detalle.solicitudPajaAgua?.canton ?? null,
+      distrito: detalle.solicitudPajaAgua?.distrito ?? null,
+      direccion_inmueble: detalle.solicitudPajaAgua?.direccion ?? '',
+      naturaleza_inmueble: detalle.solicitudPajaAgua?.naturaleza_inmueble ?? null,
+      calidad_titular: detalle.solicitudPajaAgua?.calidad_titular ?? null,
       medio_notificacion_principal: detalle.medio_notificacion_principal,
       valor_notificacion_principal: detalle.valor_notificacion_principal,
       medio_notificacion_secundario: detalle.medio_notificacion_secundario,
