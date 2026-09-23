@@ -38,11 +38,15 @@ import { HistorialAbonado } from '../abonados/entities/historial-abonado.entity'
 import { CloudinaryModule } from '../../config/cloudinary.module';
 import { AuthModule } from '../auth/auth.module';
 import { BitacoraModule } from '../bitacora/bitacora.module';
+import { AbonadosModule } from '../abonados/abonados.module';
 
 @Module({
   // AuthModule se importa para poder inyectar MailService (notificación por
-  // correo del resultado de una solicitud). Sus repos de User/Empleado/Abonado
-  // se registran acá también para no depender del re-export de TypeORM.
+  // correo del resultado de una solicitud). AbonadosModule provee
+  // AbonadosService: al aprobar una solicitud de paja de agua, se usa para
+  // crear/vincular automáticamente el Abonado (ver SolicitudesService).
+  // Sus repos de User/Empleado/Abonado se registran acá también para no
+  // depender del re-export de TypeORM.
   imports: [
     TypeOrmModule.forFeature([
       Solicitud,
@@ -60,6 +64,7 @@ import { BitacoraModule } from '../bitacora/bitacora.module';
     CloudinaryModule,
     AuthModule,
     BitacoraModule,
+    AbonadosModule,
   ],
   controllers: [
     SolicitudesController,

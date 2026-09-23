@@ -25,6 +25,20 @@ export class MailService {
     });
   }
 
+  // Misma lógica que AuthService.urlFrontendPublica(): FRONTEND_URL puede
+  // traer varias URLs separadas por coma (soporte CORS multi-origen), así
+  // que un link de correo usa PUBLIC_APP_URL si está definida, y si no, la
+  // primera de FRONTEND_URL.
+  private urlFrontendPublica(): string {
+    const publica = this.configService.get<string>('PUBLIC_APP_URL');
+    if (publica?.trim()) return publica.trim();
+
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') ??
+      'http://localhost:5173';
+    return frontendUrl.split(',')[0].trim();
+  }
+
   // Arma el HTML común a todos los correos (encabezado con el nombre de la
   // ASADA, tarjeta blanca centrada, botón de acción centrado y pie con
   // aviso legal) para que no queden inconsistentes entre sí. Usa tablas y
@@ -405,6 +419,55 @@ export class MailService {
         }),
       });
     }
+  }
+
+  // Notificación del resultado de la solicitud PÚBLICA de paja de agua (la
+  // que se llena desde el landing, sin sesión iniciada). Al aprobarla, el
+  // sistema ya creó (o reutilizó) su cuenta de Abonado, así que este correo
+  // explica los próximos pasos: gestionar los permisos municipales y, con
+  // ellos, completar la "Solicitud de conexión de paja de agua" desde su
+  // panel — el acceso a la cuenta llega en un correo aparte ("Crear mi
+  // contraseña"), por eso se menciona pero no se repite el enlace acá.
+  async enviarCorreoResultadoPajaAgua(
+    destinatario: string,
+    datos: {
+      codigo: string;
+      estadoResultado: 'Aprobada' | 'Rechazada';
+      motivo?: string | null;
+    },
+  ): Promise<void> {
+    const esAprobada = datos.estadoResultado === 'Aprobada';
+    const urlDashboard = `${this.urlFrontendPublica()}/login`;
+
+    const parrafos = esAprobada
+      ? [
+          `Tu solicitud de <strong>paja de agua</strong> con código <strong>${datos.codigo}</strong> fue <strong>aprobada</strong>.`,
+          'El siguiente paso es gestionar tus permisos municipales. Ya con ellos en mano, iniciá sesión en tu panel de abonado y completá la <strong>"Solicitud de conexión de paja de agua"</strong>, donde vas a adjuntar los documentos correspondientes.',
+          'Te creamos una cuenta de acceso: revisá tu correo por un mensaje aparte para definir tu contraseña.',
+        ]
+      : [
+          `Tu solicitud de <strong>paja de agua</strong> con código <strong>${datos.codigo}</strong> fue <strong>rechazada</strong>.`,
+          datos.motivo
+            ? `Motivo del rechazo: ${datos.motivo}`
+            : 'Si tenés dudas, contactanos en las oficinas de la ASADA.',
+        ];
+
+    await this.transporter.sendMail({
+      from:
+        this.configService.get<string>('EMAIL_FROM') ??
+        'no-reply@asada.local',
+      to: destinatario,
+      subject: `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} ${
+        esAprobada ? 'aprobada' : 'rechazada'
+      }`,
+      html: this.plantillaBase({
+        tituloEncabezado: 'Resultado de tu solicitud',
+        saludo: 'Hola,',
+        parrafos,
+        boton: esAprobada ? { texto: 'Ir a mi panel', url: urlDashboard } : undefined,
+        notaFinal: 'Gracias por usar el Sistema de Información de Abonados (SIAPB).',
+      }),
+    });
   }
 }
 

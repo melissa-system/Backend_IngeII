@@ -7,6 +7,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Empleado } from '../../../empleados/entities/empleado.entity';
+import { Abonado } from '../../../abonados/entities/abonado.entity';
 
 // Tabla dedicada a las solicitudes de paja de agua (nueva conexión).
 // Más adelante se podrán agregar otras tablas de solicitudes
@@ -131,22 +132,31 @@ export class SolicitudPajaAgua {
 
   @Column({
     type: 'enum',
-    enum: ['Pendiente', 'Aprobada', 'Rechazada', 'Completada'],
+    enum: ['Pendiente', 'En proceso', 'Aprobada', 'Rechazada', 'Completada'],
     default: 'Pendiente',
   })
   estado: string;
 
+  // Obligatorio al rechazar (validado en el DTO): la explicación que le
+  // llega al solicitante por correo. Igual que en las demás solicitudes.
+  @Column({ type: 'text', nullable: true })
+  motivo_rechazo: string | null;
+
   @CreateDateColumn()
   fecha_solicitud: Date;
 
-  // Empleado que revisó/procesó la solicitud (aprobó, rechazó o la marcó
-  // completada). NULL siempre por ahora: todavía no existe la ruta de
-  // revisión (SolicitudesController solo tiene create/findAll) — queda como
-  // tarea aparte, igual que la asignación en Averías. No confundir con
-  // "quién se convierte en abonado": eso no se registra acá (ver nota en
-  // Abonado.usuario) — este campo es autoría interna, mismo criterio que
-  // publicaciones/documentos/configuración/averías.
+  // Empleado que gestionó la solicitud (aprobó, rechazó o la marcó en
+  // proceso). Autoría interna, mismo criterio que publicaciones/documentos/
+  // configuración/averías.
   @ManyToOne(() => Empleado, { nullable: true })
   @JoinColumn({ name: 'id_empleado' })
   empleado: Empleado | null;
+
+  // Abonado creado (o reutilizado, si ya existía por cédula/correo) al
+  // aprobar la solicitud. Es lo que habilita, desde el dashboard de ese
+  // abonado, la segunda parte del trámite: "Solicitud de conexión de paja de
+  // agua". NULL mientras la solicitud no esté aprobada.
+  @ManyToOne(() => Abonado, { nullable: true })
+  @JoinColumn({ name: 'abonado_id' })
+  abonado: Abonado | null;
 }

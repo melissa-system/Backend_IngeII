@@ -2,7 +2,11 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Param,
+  ParseIntPipe,
   Body,
+  Request,
   UseGuards,
   UseInterceptors,
   UploadedFiles,
@@ -12,10 +16,12 @@ import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { SolicitudesService } from '../services/solicitudes.service';
 import { CreateSolicitudPajaAguaDto } from '../dto/create-solicitud-paja-agua.dto';
+import { ActualizarEstadoSolicitudPajaAguaDto } from '../dto/actualizar-estado-solicitud-paja-agua.dto';
 import { RolesGuard } from '../../../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
 import { Roles } from '../../../../common/decorators/roles.decorator';
 import { Role } from '../../../../common/enums/roles.enum';
+import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
 import {
   MIME_TYPES_PERMITIDOS,
   MIME_TYPES_FOTO_IDENTIFICACION,
@@ -118,5 +124,20 @@ export class SolicitudesController {
   @Roles(Role.ADMIN)
   findAll() {
     return this.solicitudesService.findAll();
+  }
+
+  // Cambio de estado: Marcar en proceso / Aprobar / Rechazar. Al aprobar se
+  // crea (o vincula) automáticamente el Abonado y se le notifica por correo
+  // — ver SolicitudesService.cambiarEstado(). El motivo es obligatorio al
+  // rechazar (se valida en el DTO). Solo administradores.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Patch(':id/estado')
+  @Roles(Role.ADMIN)
+  cambiarEstado(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ActualizarEstadoSolicitudPajaAguaDto,
+    @Request() req: { user: RequestUser },
+  ) {
+    return this.solicitudesService.cambiarEstado(id, dto, req.user);
   }
 }
