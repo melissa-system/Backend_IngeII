@@ -30,6 +30,11 @@ import { SolicitudOtro } from './otro/entities/solicitud-otro.entity';
 import { SolicitudesOtroController } from './otro/controllers/solicitudes.otro.controller';
 import { SolicitudesOtroService } from './otro/services/solicitudes.otro.service';
 
+// Conexión de servicio (fase 2 de paja de agua)
+import { SolicitudConexionPajaAgua } from './conexion-paja-agua/entities/solicitud-conexion-paja-agua.entity';
+import { SolicitudesConexionController } from './conexion-paja-agua/controllers/solicitudes-conexion.controller';
+import { SolicitudesConexionService } from './conexion-paja-agua/services/solicitudes-conexion.service';
+
 // External modules & entities
 import { Abonado } from '../abonados/entities/abonado.entity';
 import { Empleado } from '../empleados/entities/empleado.entity';
@@ -56,6 +61,7 @@ import { AbonadosModule } from '../abonados/abonados.module';
       SolicitudCambioRepresentante,
       SolicitudCambioPropietario,
       SolicitudOtro,
+      SolicitudConexionPajaAgua,
       Abonado,
       Empleado,
       User,
@@ -72,6 +78,7 @@ import { AbonadosModule } from '../abonados/abonados.module';
     CambioRepresentanteController,
     SolicitudesCambioPropietarioController,
     SolicitudesOtroController,
+    SolicitudesConexionController,
   ],
   providers: [
     SolicitudesService,
@@ -79,6 +86,7 @@ import { AbonadosModule } from '../abonados/abonados.module';
     CambioRepresentanteService,
     SolicitudesCambioPropietarioService,
     SolicitudesOtroService,
+    SolicitudesConexionService,
   ],
   exports: [
     SolicitudesService,
@@ -86,6 +94,7 @@ import { AbonadosModule } from '../abonados/abonados.module';
     CambioRepresentanteService,
     SolicitudesCambioPropietarioService,
     SolicitudesOtroService,
+    SolicitudesConexionService,
   ],
 })
 export class SolicitudesModule {}
