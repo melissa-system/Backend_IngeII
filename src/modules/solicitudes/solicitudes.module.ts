@@ -43,6 +43,7 @@ import { HistorialAbonado } from '../abonados/entities/historial-abonado.entity'
 import { CloudinaryModule } from '../../config/cloudinary.module';
 import { AuthModule } from '../auth/auth.module';
 import { BitacoraModule } from '../bitacora/bitacora.module';
+import { RecaptchaModule } from '../../common/recaptcha/recaptcha.module';
 import { AbonadosModule } from '../abonados/abonados.module';
 
 @Module({
@@ -71,6 +72,7 @@ import { AbonadosModule } from '../abonados/abonados.module';
     AuthModule,
     BitacoraModule,
     AbonadosModule,
+    RecaptchaModule,
   ],
   controllers: [
     SolicitudesController,

@@ -17,12 +17,17 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/roles.enum';
 import type { RequestUser } from '../auth/strategies/jwt.strategy';
+import { ProtegidoConRecaptcha } from '../../common/recaptcha/recaptcha.decorator';
 
 @Controller('averias')
 export class AveriasController {
   constructor(private readonly averiasService: AveriasService) {}
 
+  // Ruta pública: formulario de reporte de averías del landing. Protegida
+  // con reCAPTCHA para que un bot no pueda inundar la ASADA de reportes
+  // falsos (el token viaja en el encabezado X-Recaptcha-Token).
   @Post()
+  @ProtegidoConRecaptcha()
   create(@Body() createAveriaDto: CreateAveriaDto) {
     return this.averiasService.create(createAveriaDto);
   }
