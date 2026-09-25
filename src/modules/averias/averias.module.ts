@@ -7,11 +7,13 @@ import { HistorialAveria } from './entities/historial-averia.entity';
 import { Empleado } from '../empleados/entities/empleado.entity';
 import { Abonado } from '../abonados/entities/abonado.entity';
 import { BitacoraModule } from '../bitacora/bitacora.module';
+import { RecaptchaModule } from '../../common/recaptcha/recaptcha.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Averia, HistorialAveria, Empleado, Abonado]),
     BitacoraModule,
+    RecaptchaModule,
   ],
   controllers: [AveriasController],
   providers: [AveriasService],
