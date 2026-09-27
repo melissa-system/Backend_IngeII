@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AveriasModule } from './modules/averias/averias.module';
 import { InventarioModule } from './modules/inventario/inventario.module';
+import { ReportesFontaneroModule } from './modules/reportes-fontanero/reportes-fontanero.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { SolicitudesModule } from './modules/solicitudes/solicitudes.module';
 import { AbonadosModule } from './modules/abonados/abonados.module';
@@ -49,6 +50,7 @@ import { BitacoraModule } from './modules/bitacora/bitacora.module';
     AuthModule,
     AveriasModule,
     InventarioModule,
+    ReportesFontaneroModule,
     SolicitudesModule,
     AbonadosModule,
     PublicacionesModule,
