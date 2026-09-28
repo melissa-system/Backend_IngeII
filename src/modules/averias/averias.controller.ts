@@ -5,6 +5,7 @@ import {
   Patch,
   Param,
   Body,
+  Query,
   UseGuards,
   ParseIntPipe,
   Request,
@@ -12,6 +13,7 @@ import {
 import { AveriasService } from './averias.service';
 import { CreateAveriaDto } from './dto/create-averia.dto';
 import { UpdateAveriaDto } from './dto/update-averia.dto';
+import { FiltroEstadisticasAveriasDto } from './dto/filtro-estadisticas-averias.dto';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -37,6 +39,13 @@ export class AveriasController {
   @Roles(Role.ABONADO)
   misAverias(@Request() req: { user?: RequestUser }) {
     return this.averiasService.misAverias(req.user!);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Get('estadisticas')
+  @Roles(Role.ADMIN)
+  obtenerEstadisticas(@Query() filtros: FiltroEstadisticasAveriasDto) {
+    return this.averiasService.obtenerEstadisticas(filtros);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

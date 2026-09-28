@@ -1,15 +1,23 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Averia } from './entities/averia.entity';
 import { HistorialAveria } from './entities/historial-averia.entity';
 import { CreateAveriaDto } from './dto/create-averia.dto';
 import { UpdateAveriaDto } from './dto/update-averia.dto';
+import { FiltroEstadisticasAveriasDto } from './dto/filtro-estadisticas-averias.dto';
 import { Empleado } from '../empleados/entities/empleado.entity';
 import { Abonado } from '../abonados/entities/abonado.entity';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { ModuloBitacora, AccionBitacora } from '../bitacora/entities/bitacora.enums';
 import type { RequestUser } from '../auth/strategies/jwt.strategy';
+
+export interface EstadisticasAveriasRespuesta {
+  total: number;
+  porTipo: { tipo: string; total: number }[];
+  porEstado: { estado: string; total: number }[];
+  registros: Averia[];
+}
 
 @Injectable()
 export class AveriasService {
@@ -215,5 +223,96 @@ export class AveriasService {
         fecha: h.fecha,
       })),
     ].sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
+  }
+
+  async obtenerEstadisticas(
+    filtros: FiltroEstadisticasAveriasDto,
+  ): Promise<EstadisticasAveriasRespuesta> {
+    if (filtros.fechaInicio?.trim() && filtros.fechaFin?.trim()) {
+      if (filtros.fechaInicio > filtros.fechaFin) {
+        throw new BadRequestException(
+          'La fecha de inicio no puede ser posterior a la fecha de fin',
+        );
+      }
+    }
+
+    const qTotal = this.averiaRepository.createQueryBuilder('averia');
+    this.aplicarFiltrosEstadisticas(qTotal, filtros);
+    const total = await qTotal.getCount();
+
+    if (total === 0) {
+      return {
+        total: 0,
+        porTipo: [],
+        porEstado: [],
+        registros: [],
+      };
+    }
+
+    const qTipo = this.averiaRepository
+      .createQueryBuilder('averia')
+      .select('averia.tipo_averia', 'tipo')
+      .addSelect('COUNT(averia.id)', 'total');
+    this.aplicarFiltrosEstadisticas(qTipo, filtros);
+    const rawPorTipo = await qTipo
+      .groupBy('averia.tipo_averia')
+      .orderBy('total', 'DESC')
+      .getRawMany();
+
+    const qEstado = this.averiaRepository
+      .createQueryBuilder('averia')
+      .select('averia.estado', 'estado')
+      .addSelect('COUNT(averia.id)', 'total');
+    this.aplicarFiltrosEstadisticas(qEstado, filtros);
+    const rawPorEstado = await qEstado
+      .groupBy('averia.estado')
+      .orderBy('total', 'DESC')
+      .getRawMany();
+
+    const qRegistros = this.averiaRepository
+      .createQueryBuilder('averia')
+      .leftJoinAndSelect('averia.empleado', 'empleado')
+      .orderBy('averia.fecha_reporte', 'DESC');
+    this.aplicarFiltrosEstadisticas(qRegistros, filtros);
+    const registros = await qRegistros.getMany();
+
+    return {
+      total,
+      porTipo: rawPorTipo.map((item) => ({
+        tipo: item.tipo,
+        total: Number(item.total) || 0,
+      })),
+      porEstado: rawPorEstado.map((item) => ({
+        estado: item.estado,
+        total: Number(item.total) || 0,
+      })),
+      registros,
+    };
+  }
+
+  private aplicarFiltrosEstadisticas(
+    query: SelectQueryBuilder<Averia>,
+    filtros: FiltroEstadisticasAveriasDto,
+  ) {
+    if (filtros.fechaInicio?.trim()) {
+      const inicio =
+        filtros.fechaInicio.trim().length === 10
+          ? `${filtros.fechaInicio.trim()} 00:00:00`
+          : filtros.fechaInicio.trim();
+      query.andWhere('averia.fecha_reporte >= :inicio', { inicio });
+    }
+    if (filtros.fechaFin?.trim()) {
+      const fin =
+        filtros.fechaFin.trim().length === 10
+          ? `${filtros.fechaFin.trim()} 23:59:59`
+          : filtros.fechaFin.trim();
+      query.andWhere('averia.fecha_reporte <= :fin', { fin });
+    }
+    if (filtros.tipo?.trim() && filtros.tipo.trim() !== 'Todos') {
+      query.andWhere('averia.tipo_averia = :tipo', { tipo: filtros.tipo.trim() });
+    }
+    if (filtros.estado?.trim() && filtros.estado.trim() !== 'Todos') {
+      query.andWhere('averia.estado = :estado', { estado: filtros.estado.trim() });
+    }
   }
 }
