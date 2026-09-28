@@ -61,6 +61,12 @@ export class ReporteFontanero {
   @OneToMany(() => MaterialReporteFontanero, (material) => material.reporte)
   materiales: MaterialReporteFontanero[];
 
+  // Materiales usados escritos en texto libre por el fontanero. Los reportes
+  // antiguos pueden traer tanto este campo como la tabla de materiales
+  // vinculados a inventario; los nuevos solo este texto.
+  @Column({ type: 'text', nullable: true })
+  materiales_texto: string | null;
+
   @CreateDateColumn()
   fecha_registro: Date;
 }

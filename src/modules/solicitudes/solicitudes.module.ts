@@ -10,6 +10,10 @@ import { SolicitudPajaAgua } from './paja-agua/entities/solicitud-paja-agua.enti
 import { SolicitudesController } from './paja-agua/controllers/solicitudes.controller';
 import { SolicitudesService } from './paja-agua/services/solicitudes.service';
 
+// Estadísticas para página de reportes
+import { SolicitudesEstadisticasController } from './estadisticas/controllers/solicitudes-estadisticas.controller';
+import { SolicitudesEstadisticasService } from './estadisticas/services/solicitudes-estadisticas.service';
+
 // Cambio de Medidor
 import { SolicitudCambioMedidor } from './cambio-medidor/entities/solicitud-cambio-medidor.entity';
 import { SolicitudesCambioMedidorController } from './cambio-medidor/controllers/solicitudes.cambio-medidor.controller';
@@ -75,6 +79,8 @@ import { AbonadosModule } from '../abonados/abonados.module';
     RecaptchaModule,
   ],
   controllers: [
+    // Estadísticas primero para que 'estadisticas' gane sobre rutas paramétricas.
+    SolicitudesEstadisticasController,
     SolicitudesController,
     SolicitudesCambioMedidorController,
     CambioRepresentanteController,
@@ -83,6 +89,7 @@ import { AbonadosModule } from '../abonados/abonados.module';
     SolicitudesConexionController,
   ],
   providers: [
+    SolicitudesEstadisticasService,
     SolicitudesService,
     SolicitudesCambioMedidorService,
     CambioRepresentanteService,
@@ -91,6 +98,7 @@ import { AbonadosModule } from '../abonados/abonados.module';
     SolicitudesConexionService,
   ],
   exports: [
+    SolicitudesEstadisticasService,
     SolicitudesService,
     SolicitudesCambioMedidorService,
     CambioRepresentanteService,

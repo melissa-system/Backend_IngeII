@@ -6,12 +6,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, DataSource, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { ReporteFontanero } from './entities/reporte-fontanero.entity';
-import { MaterialReporteFontanero } from './entities/material-reporte-fontanero.entity';
 import { CrearReporteFontaneroDto } from './dto/crear-reporte-fontanero.dto';
 import { FiltrarReportesFontaneroDto } from './dto/filtrar-reportes-fontanero.dto';
 import { Empleado } from '../empleados/entities/empleado.entity';
 import { User } from '../auth/entities/user.entity';
-import { InventarioService } from '../inventario/inventario.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { ModuloBitacora } from '../bitacora/entities/bitacora.enums';
 import type { RequestUser } from '../auth/strategies/jwt.strategy';
@@ -24,13 +22,10 @@ export class ReportesFontaneroService {
   constructor(
     @InjectRepository(ReporteFontanero)
     private readonly reporteRepository: Repository<ReporteFontanero>,
-    @InjectRepository(MaterialReporteFontanero)
-    private readonly materialRepository: Repository<MaterialReporteFontanero>,
     @InjectRepository(Empleado)
     private readonly empleadoRepository: Repository<Empleado>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-    private readonly inventarioService: InventarioService,
     private readonly bitacoraService: BitacoraService,
     private readonly dataSource: DataSource,
   ) {}
@@ -61,28 +56,15 @@ export class ReportesFontaneroService {
     user: RequestUser,
   ): Promise<ReporteFontanero> {
     const empleado = await this.resolverFontanero(user);
-    const materiales = dto.materiales ?? [];
-
-    // Un mismo material repetido en la lista se suma: el formulario permite
-    // agregar filas y es fácil elegir dos veces lo mismo. Si no se agrupara,
-    // se validaría el stock por separado para cada fila y podría pasar una
-    // cantidad total mayor a la disponible.
-    const cantidadPorArticulo = new Map<number, number>();
-    for (const material of materiales) {
-      cantidadPorArticulo.set(
-        material.articuloId,
-        (cantidadPorArticulo.get(material.articuloId) ?? 0) + material.cantidad,
-      );
-    }
-
     const autor = await this.autorDe(user.id);
     const nombreFontanero = empleado.nombre;
 
-    // Todo dentro de una transacción: si falla el descuento de cualquier
-    // material (por ejemplo, el último se quedó sin stock), no se guarda el
-    // reporte ni se descuenta ninguno de los anteriores.
-    const reporteGuardado = await this.dataSource.transaction(async (manager) => {
-      const reporte = await manager.save(
+    // El material se guarda como texto libre (sin vinculación ni descuento
+    // de inventario): la entrada/salida de stock es solo de administración.
+    const materialesTexto = dto.materialesTexto?.trim() || null;
+
+    const reporteGuardado = await this.dataSource.transaction(async (manager) =>
+      manager.save(
         ReporteFontanero,
         manager.create(ReporteFontanero, {
           empleado_id: empleado.id,
@@ -91,36 +73,10 @@ export class ReportesFontaneroService {
           fecha_trabajo: dto.fechaTrabajo,
           tiempo_minutos: dto.tiempoMinutos,
           averia_id: dto.averiaId ?? null,
+          materiales_texto: materialesTexto,
         }),
-      );
-
-      for (const [articuloId, cantidad] of cantidadPorArticulo) {
-        const { articulo } =
-          await this.inventarioService.descontarMaterialEnTransaccion(manager, {
-            articuloId,
-            cantidad,
-            motivo: `Reporte de actividad #${reporte.id} (${nombreFontanero})`,
-            responsable: nombreFontanero,
-            usuarioId: user.id,
-            nombreRegistro: nombreFontanero,
-            autor,
-          });
-
-        await manager.save(
-          MaterialReporteFontanero,
-          manager.create(MaterialReporteFontanero, {
-            reporte_id: reporte.id,
-            articulo_id: articulo.id,
-            // Copia del nombre: si el artículo se elimina o se renombra, el
-            // reporte histórico sigue diciendo qué se ocupó.
-            nombre_articulo: articulo.nombre,
-            cantidad,
-          }),
-        );
-      }
-
-      return reporte;
-    });
+      ),
+    );
 
     await this.bitacoraService.registrarCreacion(
       ModuloBitacora.REPORTES_FONTANERO,

@@ -41,6 +41,15 @@ export class AveriasController {
     return this.averiasService.misAverias(req.user!);
   }
 
+  // Bandeja del fontanero: solo las averías asignadas que siguen abiertas
+  // (Pendiente o En proceso). Va antes de ':id' para no tomarse como un id.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Get('mis-averias-fontanero')
+  @Roles(Role.FONTANERO)
+  misAveriasFontanero(@Request() req: { user?: RequestUser }) {
+    return this.averiasService.misAveriasFontanero(req.user!);
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Get('estadisticas')
   @Roles(Role.ADMIN)
