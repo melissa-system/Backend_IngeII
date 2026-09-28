@@ -141,8 +141,13 @@ export class DocumentosController {
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateDocumentoDto: UpdateDocumentoDto,
+    @Request() req: { user?: RequestUser },
   ) {
-    return this.documentosService.update(id, updateDocumentoDto);
+    return this.documentosService.update(
+      id,
+      updateDocumentoDto,
+      req.user?.id,
+    );
   }
 
   // DELETE /documentos/:id
@@ -152,7 +157,10 @@ export class DocumentosController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.documentosService.remove(id);
+  remove(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: { user?: RequestUser },
+  ) {
+    return this.documentosService.remove(id, req.user?.id);
   }
 }

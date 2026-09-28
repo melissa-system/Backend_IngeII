@@ -56,11 +56,16 @@ export class PublicacionesController {
   // Edición y publicar/despublicar, usado por el dashboard administrativo.
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
-  @Patch(':id')
+ @Patch(':id')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updatePublicacionDto: UpdatePublicacionDto,
+    @Request() req: { user?: RequestUser },
   ) {
-    return this.publicacionesService.update(id, updatePublicacionDto);
+    return this.publicacionesService.update(
+      id,
+      updatePublicacionDto,
+      req.user?.id,
+    );
   }
 }

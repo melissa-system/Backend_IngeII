@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AveriasModule } from './modules/averias/averias.module';
 import { InventarioModule } from './modules/inventario/inventario.module';
+import { ReportesFontaneroModule } from './modules/reportes-fontanero/reportes-fontanero.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { SolicitudesModule } from './modules/solicitudes/solicitudes.module';
 import { AbonadosModule } from './modules/abonados/abonados.module';
@@ -12,6 +13,7 @@ import { PublicacionesModule } from './modules/publicaciones/publicaciones.modul
 import { DocumentosModule } from './modules/documentos/documentos.module';
 import { EmpleadosModule } from './modules/empleados/empleados.module';
 import { ConfiguracionModule } from './modules/configuracion/configuracion.module';
+import { BitacoraModule } from './modules/bitacora/bitacora.module';
 
 @Module({
   imports: [
@@ -48,12 +50,14 @@ import { ConfiguracionModule } from './modules/configuracion/configuracion.modul
     AuthModule,
     AveriasModule,
     InventarioModule,
+    ReportesFontaneroModule,
     SolicitudesModule,
     AbonadosModule,
     PublicacionesModule,
     DocumentosModule,
     EmpleadosModule,
     ConfiguracionModule,
+    BitacoraModule,
   ],
   controllers: [AppController],
   providers: [AppService],

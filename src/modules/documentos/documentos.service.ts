@@ -15,18 +15,36 @@ import {
 } from './enums/documento.enums';
 import { EmpleadosService } from '../empleados/empleados.service';
 import { CloudinaryService } from '../../config/cloudinary.service';
+import { User } from '../auth/entities/user.entity';
+import { BitacoraService } from '../bitacora/bitacora.service';
+import { ModuloBitacora } from '../bitacora/entities/bitacora.enums';
 
 // Carpeta dentro de la cuenta de Cloudinary donde viven estos documentos
 const CARPETA_CLOUDINARY = 'ASADA/documentos';
 
 @Injectable()
 export class DocumentosService {
+  // OJO con el orden: cada @InjectRepository() aplica al parámetro que tiene
+  // INMEDIATAMENTE debajo. Los servicios no llevan decorador y van agrupados
+  // al final, para no quedar pegados a un @InjectRepository ajeno.
   constructor(
     @InjectRepository(Documento)
     private readonly documentoRepository: Repository<Documento>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
     private readonly empleadosService: EmpleadosService,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly bitacoraService: BitacoraService,
   ) {}
+
+  // Autor de un movimiento para la bitácora. RequestUser solo trae el id, así
+  // que el correo se busca en la BD: la bitácora lo guarda para conservar
+  // quién hizo la acción aunque después se elimine la cuenta.
+  private async autorDe(usuarioId?: number) {
+    if (!usuarioId) return null;
+    const usuario = await this.userRepository.findOneBy({ id: usuarioId });
+    return { id: usuarioId, email: usuario?.email ?? null };
+  }
 
   // Ningún documento (vigente o inhabilitado) puede compartir nombre con
   // otro: si ya existe, hay que usar "Actualizar versión" sobre ESE
@@ -104,6 +122,7 @@ export class DocumentosService {
       CARPETA_CLOUDINARY,
     );
 
+    let guardado: Documento;
     try {
       const empleado = usuarioId
         ? await this.empleadosService.buscarPorUsuarioId(usuarioId)
@@ -120,7 +139,7 @@ export class DocumentosService {
         empleado,
       });
 
-      return await this.documentoRepository.save(nuevoDocumento);
+      guardado = await this.documentoRepository.save(nuevoDocumento);
     } catch (error) {
       // El archivo ya está en Cloudinary; si el guardado en MySQL falla, hay
       // que borrarlo para no dejarlo huérfano.
@@ -130,6 +149,21 @@ export class DocumentosService {
       );
       throw error;
     }
+
+    // 7. Auditar la creación. Fuera del try/catch a propósito: si la bitácora
+    // fallara, no debe disparar el rollback que borra el archivo de un
+    // documento que sí quedó guardado (igual, BitacoraService nunca lanza).
+    const autor = await this.autorDe(usuarioId);
+    if (autor) {
+      await this.bitacoraService.registrarCreacion(
+        ModuloBitacora.DOCUMENTOS,
+        guardado.id,
+        autor,
+        `Documento "${guardado.nombre}" (${guardado.tipo}) subido`,
+      );
+    }
+
+    return guardado;
   }
 
   // Nueva versión de un documento EXISTENTE (identificado por id, no por
@@ -167,6 +201,7 @@ export class DocumentosService {
       CARPETA_CLOUDINARY,
     );
 
+    let nuevaGuardada: Documento;
     try {
       // La versión anterior queda inhabilitada pero conserva su archivo en
       // Cloudinary: sigue siendo consultable como historial.
@@ -188,7 +223,7 @@ export class DocumentosService {
         empleado,
       });
 
-      return await this.documentoRepository.save(nuevaVersion);
+      nuevaGuardada = await this.documentoRepository.save(nuevaVersion);
     } catch (error) {
       await this.cloudinaryService.eliminarArchivo(
         archivoSubido.publicId,
@@ -196,6 +231,29 @@ export class DocumentosService {
       );
       throw error;
     }
+
+    // Dos movimientos a propósito: uno por la versión nueva que nace y otro
+    // por la anterior que queda inhabilitada. Así el historial muestra el
+    // reemplazo completo, no solo la mitad.
+    const autor = await this.autorDe(usuarioId);
+    if (autor) {
+      await this.bitacoraService.registrarCreacion(
+        ModuloBitacora.DOCUMENTOS,
+        nuevaGuardada.id,
+        autor,
+        `Versión ${nuevaGuardada.version} de "${nuevaGuardada.nombre}" subida`,
+      );
+      await this.bitacoraService.registrarCambioEstado(
+        ModuloBitacora.DOCUMENTOS,
+        actual.id,
+        autor,
+        EstadoDocumento.VIGENTE,
+        EstadoDocumento.INHABILITADO,
+        `Versión ${actual.version} reemplazada por la versión ${nuevaGuardada.version}`,
+      );
+    }
+
+    return nuevaGuardada;
   }
 
   // Valida que un filtro de tipo recibido por query string pertenezca al
@@ -266,6 +324,7 @@ export class DocumentosService {
   async update(
     id: number,
     updateDocumentoDto: UpdateDocumentoDto,
+    usuarioId?: number,
   ): Promise<Documento> {
     const documento = await this.documentoRepository.findOneBy({ id });
     if (!documento) {
@@ -309,8 +368,47 @@ export class DocumentosService {
       );
     }
 
+    // Copia de los valores ANTES de aplicar los cambios: después del
+    // Object.assign el original se pierde y ya no se puede comparar.
+    const antes = { ...documento } as Record<string, unknown>;
+
     Object.assign(documento, updateDocumentoDto);
-    return await this.documentoRepository.save(documento);
+    const guardado = await this.documentoRepository.save(documento);
+
+    const autor = await this.autorDe(usuarioId);
+    if (autor) {
+      // Inhabilitar o reactivar se registra como CAMBIO DE ESTADO, aparte de
+      // las ediciones de nombre y visibilidad, para poder filtrarlo solo.
+      if (
+        updateDocumentoDto.estado !== undefined &&
+        antes.estado !== updateDocumentoDto.estado
+      ) {
+        await this.bitacoraService.registrarCambioEstado(
+          ModuloBitacora.DOCUMENTOS,
+          guardado.id,
+          autor,
+          String(antes.estado),
+          updateDocumentoDto.estado,
+          `Documento "${guardado.nombre}"`,
+        );
+      }
+
+      const cambios = BitacoraService.compararCampos(
+        antes,
+        updateDocumentoDto as unknown as Record<string, unknown>,
+        ['nombre', 'visibilidad'],
+      );
+      if (cambios.length > 0) {
+        await this.bitacoraService.registrarEdicion(
+          ModuloBitacora.DOCUMENTOS,
+          guardado.id,
+          autor,
+          cambios,
+        );
+      }
+    }
+
+    return guardado;
   }
 
   // Eliminación DEFINITIVA de un documento: borra la fila de MySQL y también
@@ -320,13 +418,21 @@ export class DocumentosService {
   // El archivo se borra DESPUÉS de eliminar la fila: si el borrado de la fila
   // falla, el documento sigue completo y usable. Al revés (borrar el archivo
   // primero) dejaría una fila apuntando a una URL rota.
-  async remove(id: number): Promise<{ mensaje: string }> {
+  async remove(id: number, usuarioId?: number): Promise<{ mensaje: string }> {
     const documento = await this.documentoRepository.findOneBy({ id });
     if (!documento) {
       throw new NotFoundException(`El documento con el ID ${id} no fue encontrado`);
     }
 
+    // Se guardan ANTES del remove: después la fila ya no existe y no hay de
+    // dónde leer qué documento era.
     const publicId = documento.public_id;
+    const nombreBorrado = documento.nombre;
+    const tipoBorrado = documento.tipo;
+    const versionBorrada = documento.version;
+    // Cloudinary necesita saber si el archivo es imagen o "raw" (PDF, Word,
+    // Excel) para poder borrarlo; se deduce de la URL guardada.
+    const esImagen = documento.ubicacion?.includes('/image/upload/') ?? false;
 
     await this.documentoRepository.remove(documento);
 
@@ -334,7 +440,19 @@ export class DocumentosService {
     // vive en uploads/ del servidor); en ese caso no hay nada que borrar en la
     // nube y eliminarArchivo simplemente no hace nada.
     if (publicId) {
-      await this.cloudinaryService.eliminarArchivo(publicId, false);
+      await this.cloudinaryService.eliminarArchivo(publicId, esImagen);
+    }
+
+    // La bitácora conserva el rastro aunque el documento ya no exista: por
+    // eso registro_id no es una llave foránea.
+    const autor = await this.autorDe(usuarioId);
+    if (autor) {
+      await this.bitacoraService.registrarEliminacion(
+        ModuloBitacora.DOCUMENTOS,
+        id,
+        autor,
+        `Documento "${nombreBorrado}" (${tipoBorrado}, versión ${versionBorrada}) eliminado definitivamente`,
+      );
     }
 
     return { mensaje: 'Documento eliminado correctamente' };

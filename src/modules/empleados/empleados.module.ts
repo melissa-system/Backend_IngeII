@@ -6,14 +6,20 @@ import { Abonado } from '../abonados/entities/abonado.entity';
 import { EmpleadosService } from './empleados.service';
 import { EmpleadosController } from './empleados.controller';
 import { AuthModule } from '../auth/auth.module';
+import { BitacoraModule } from '../bitacora/bitacora.module';
 
 @Module({
   // Abonado se registra solo para poder validar que una cédula no esté ya
   // usada por un abonado (ver EmpleadosService.crear/actualizar) — no crea
   // dependencia de AbonadosModule, solo repositorio. AuthModule provee
   // AuthService, necesario para crear la cuenta de acceso de un empleado
-  // cuando se vincula por correo (ver vincularCuenta).
-  imports: [TypeOrmModule.forFeature([Empleado, User, Abonado]), AuthModule],
+  // cuando se vincula por correo (ver vincularCuenta). BitacoraModule provee
+  // el registro de auditoría.
+  imports: [
+    TypeOrmModule.forFeature([Empleado, User, Abonado]),
+    AuthModule,
+    BitacoraModule,
+  ],
   controllers: [EmpleadosController],
   providers: [EmpleadosService],
   // EmpleadosService se exporta además de TypeOrmModule: Publicaciones,

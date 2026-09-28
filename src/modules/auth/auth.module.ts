@@ -1,3 +1,4 @@
+import { BitacoraModule } from '../bitacora/bitacora.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -50,6 +51,7 @@ import { CloudinaryModule } from '../../config/cloudinary.module';
       }),
     }),
     CloudinaryModule,
+    BitacoraModule,
   ],
   controllers: [AuthController, RolesController, UsersController],
   providers: [AuthService, RolesService, LocalStrategy, JwtStrategy, MailService],
