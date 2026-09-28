@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Abonado } from './entities/abonado.entity';
 import { HistorialAbonado } from './entities/historial-abonado.entity';
 import { CreateAbonadoDto } from './dto/create-abonado.dto';
@@ -13,6 +13,7 @@ import { User } from '../auth/entities/user.entity';
 import { Empleado } from '../empleados/entities/empleado.entity';
 import { Solicitud } from '../solicitudes/common/entities/solicitud.entity';
 import { Averia } from '../averias/entities/averia.entity';
+import { FiltroEstadisticasAbonadosDto } from './dto/filtro-estadisticas-abonados.dto';
 import { AuthService } from '../auth/auth.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { ModuloBitacora } from '../bitacora/entities/bitacora.enums';
@@ -44,7 +45,20 @@ export interface AbonadoPlano {
   cedula_representante: string | null;
 }
 
-const RELACIONES_DETALLE = { fisico: true, juridico: true, usuario: true } as const;
+const RELACIONES_DETALLE = {
+  fisico: true,
+  juridico: true,
+  usuario: true,
+} as const;
+
+// Forma en que la pagina de reportes estadísticos consume el módulo de
+// abonados: total filtrado, conteos por tipo/estado y los registros planos.
+export interface EstadisticasAbonadosRespuesta {
+  total: number;
+  porTipo: { tipo: string; total: number }[];
+  porEstado: { estado: string; total: number }[];
+  registros: AbonadoPlano[];
+}
 
 @Injectable()
 export class AbonadosService {
@@ -167,7 +181,9 @@ export class AbonadosService {
     }
 
     if (!String(datos.correo).includes('@')) {
-      throw new BadRequestException('El correo electrónico no tiene un formato válido');
+      throw new BadRequestException(
+        'El correo electrónico no tiene un formato válido',
+      );
     }
   }
 
@@ -358,7 +374,9 @@ export class AbonadosService {
       relations: RELACIONES_DETALLE,
     });
     if (!abonado) {
-      throw new NotFoundException(`El abonado con el ID ${id} no fue encontrado`);
+      throw new NotFoundException(
+        `El abonado con el ID ${id} no fue encontrado`,
+      );
     }
     return abonado;
   }
@@ -390,6 +408,102 @@ export class AbonadosService {
 
     const abonados = await query.getMany();
     return abonados.map((a) => this.aPlano(a));
+  }
+
+  // Resumen estadístico para la página de reportes: total filtrado, conteos
+  // por tipo/estado y los registros planos. Mismo contrato que el endpoint
+  // de estadísticas de averías para que el frontend use la misma lógica.
+  async obtenerEstadisticas(
+    filtros: FiltroEstadisticasAbonadosDto,
+  ): Promise<EstadisticasAbonadosRespuesta> {
+    if (filtros.fechaInicio?.trim() && filtros.fechaFin?.trim()) {
+      if (filtros.fechaInicio > filtros.fechaFin) {
+        throw new BadRequestException(
+          'La fecha de inicio no puede ser posterior a la fecha de fin',
+        );
+      }
+    }
+
+    const qTotal = this.abonadoRepository.createQueryBuilder('a');
+    this.aplicarFiltrosEstadisticas(qTotal, filtros);
+    const total = await qTotal.getCount();
+
+    if (total === 0) {
+      return {
+        total: 0,
+        porTipo: [],
+        porEstado: [],
+        registros: [],
+      };
+    }
+
+    const qTipo = this.abonadoRepository
+      .createQueryBuilder('a')
+      .select('a.tipo_abonado', 'tipo')
+      .addSelect('COUNT(a.id)', 'total');
+    this.aplicarFiltrosEstadisticas(qTipo, filtros);
+    const rawPorTipo = await qTipo
+      .groupBy('a.tipo_abonado')
+      .orderBy('total', 'DESC')
+      .getRawMany();
+
+    const qEstado = this.abonadoRepository
+      .createQueryBuilder('a')
+      .select('a.estado', 'estado')
+      .addSelect('COUNT(a.id)', 'total');
+    this.aplicarFiltrosEstadisticas(qEstado, filtros);
+    const rawPorEstado = await qEstado
+      .groupBy('a.estado')
+      .orderBy('total', 'DESC')
+      .getRawMany();
+
+    const qRegistros = this.abonadoRepository
+      .createQueryBuilder('a')
+      .leftJoinAndSelect('a.fisico', 'fisico')
+      .leftJoinAndSelect('a.juridico', 'juridico')
+      .leftJoinAndSelect('a.usuario', 'usuario')
+      .orderBy('a.fecha_registro', 'DESC');
+    this.aplicarFiltrosEstadisticas(qRegistros, filtros);
+    const registros = await qRegistros.getMany();
+
+    return {
+      total,
+      porTipo: rawPorTipo.map((item) => ({
+        tipo: item.tipo,
+        total: Number(item.total) || 0,
+      })),
+      porEstado: rawPorEstado.map((item) => ({
+        estado: item.estado,
+        total: Number(item.total) || 0,
+      })),
+      registros: registros.map((a) => this.aPlano(a)),
+    };
+  }
+
+  private aplicarFiltrosEstadisticas(
+    query: SelectQueryBuilder<Abonado>,
+    filtros: FiltroEstadisticasAbonadosDto,
+  ) {
+    if (filtros.fechaInicio?.trim()) {
+      const inicio =
+        filtros.fechaInicio.trim().length === 10
+          ? `${filtros.fechaInicio.trim()} 00:00:00`
+          : filtros.fechaInicio.trim();
+      query.andWhere('a.fecha_registro >= :inicio', { inicio });
+    }
+    if (filtros.fechaFin?.trim()) {
+      const fin =
+        filtros.fechaFin.trim().length === 10
+          ? `${filtros.fechaFin.trim()} 23:59:59`
+          : filtros.fechaFin.trim();
+      query.andWhere('a.fecha_registro <= :fin', { fin });
+    }
+    if (filtros.tipo?.trim() && filtros.tipo.trim() !== 'Todos') {
+      query.andWhere('a.tipo_abonado = :tipo', { tipo: filtros.tipo.trim() });
+    }
+    if (filtros.estado?.trim() && filtros.estado.trim() !== 'Todos') {
+      query.andWhere('a.estado = :estado', { estado: filtros.estado.trim() });
+    }
   }
 
   async findOne(id: number): Promise<AbonadoPlano> {
@@ -462,7 +576,11 @@ export class AbonadosService {
           numero_plano_catastrado: null,
         } as Abonado['fisico'];
       }
-      const camposFisico = ['apellido1', 'apellido2', 'numero_plano_catastrado'];
+      const camposFisico = [
+        'apellido1',
+        'apellido2',
+        'numero_plano_catastrado',
+      ];
       for (const campo of camposFisico) {
         if (cambios[campo] !== undefined) {
           (abonado.fisico as unknown as Record<string, string | null>)[campo] =
@@ -476,7 +594,10 @@ export class AbonadosService {
           cedula_representante: null,
         } as Abonado['juridico'];
       }
-      const camposJuridico = ['nombre_representante_legal', 'cedula_representante'];
+      const camposJuridico = [
+        'nombre_representante_legal',
+        'cedula_representante',
+      ];
       for (const campo of camposJuridico) {
         if (cambios[campo] !== undefined) {
           (abonado.juridico as unknown as Record<string, string | null>)[
@@ -594,15 +715,15 @@ export class AbonadosService {
         valor_nuevo: cambios[campo] ?? null,
       }))
       .filter((p) => (p.valor_anterior ?? '') !== (p.valor_nuevo ?? ''));
- 
+
     if (pares.length === 0) return;
- 
+
     const usuario = await this.userRepository.findOneBy({ id: usuarioId });
     const autor = {
       id: usuarioId,
       email: usuario?.email ?? `usuario-${usuarioId}`,
     };
- 
+
     await this.bitacoraService.registrarEdicion(
       ModuloBitacora.ABONADOS,
       abonadoId,
@@ -628,17 +749,17 @@ export class AbonadosService {
     }>
   > {
     const abonado = await this.findOne(id);
- 
+
     const nuevos = await this.bitacoraService.historialDeRegistro(
       ModuloBitacora.ABONADOS,
       abonado.id,
     );
- 
+
     const viejos = await this.historialRepository.find({
       where: { abonado: { id: abonado.id } },
       order: { fecha: 'DESC' },
     });
- 
+
     return [
       ...nuevos.map((b) => ({
         id: b.id,
@@ -667,7 +788,9 @@ export class AbonadosService {
       relations: RELACIONES_DETALLE,
     });
     if (!abonado) {
-      throw new NotFoundException('No se encontró un abonado vinculado a esta cuenta');
+      throw new NotFoundException(
+        'No se encontró un abonado vinculado a esta cuenta',
+      );
     }
 
     const [
@@ -686,13 +809,26 @@ export class AbonadosService {
         where: { abonado: { id: abonado.id } },
         order: { fecha_creacion: 'DESC' },
         take: 5,
-        select: { id: true, codigo_solicitud: true, tipo_solicitud: true, estado: true, fecha_creacion: true },
+        select: {
+          id: true,
+          codigo_solicitud: true,
+          tipo_solicitud: true,
+          estado: true,
+          fecha_creacion: true,
+        },
       }),
       this.averiaRepository.find({
         where: { cedula_reportante: abonado.cedula },
         order: { fecha_reporte: 'DESC' },
         take: 5,
-        select: { id: true, codigo_averia: true, tipo_averia: true, descripcion: true, estado: true, fecha_reporte: true },
+        select: {
+          id: true,
+          codigo_averia: true,
+          tipo_averia: true,
+          descripcion: true,
+          estado: true,
+          fecha_reporte: true,
+        },
       }),
     ]);
 
