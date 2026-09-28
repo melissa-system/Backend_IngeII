@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, SelectQueryBuilder } from 'typeorm';
+import { In, Repository, SelectQueryBuilder } from 'typeorm';
 import { Averia } from './entities/averia.entity';
 import { HistorialAveria } from './entities/historial-averia.entity';
 import { CreateAveriaDto } from './dto/create-averia.dto';
@@ -92,6 +92,38 @@ export class AveriasService {
       where: { cedula_reportante: abonado.cedula },
       relations: { empleado: true },
       order: { fecha_reporte: 'DESC' },
+    });
+
+    for (const averia of averias) {
+      (averia as unknown as Record<string, unknown>).historial =
+        await this.armarHistorial(averia.id);
+    }
+
+    return averias;
+  }
+
+  // Averías asignadas al fontanero autenticado que siguen sin finalizarse.
+  // Le sirven de "bandeja de pendientes" (perfil del fontanero) y de
+  // opciones del formulario de reporte de actividad.
+  async misAveriasFontanero(user: RequestUser): Promise<Averia[]> {
+    const empleado = await this.empleadoRepository.findOne({
+      where: { usuario: { id: user.id } },
+    });
+    if (!empleado) {
+      throw new NotFoundException(
+        'No se encontró un empleado vinculado a esta cuenta',
+      );
+    }
+
+    const averias = await this.averiaRepository.find({
+      // Solo las que siguen abiertas: las finalizadas ya se reportaron.
+      where: {
+        empleado: { id: empleado.id },
+        estado: In(['Pendiente', 'En proceso']),
+      },
+      relations: { empleado: true },
+      // Las más antiguas primero: son las que llevan más espera.
+      order: { fecha_reporte: 'ASC', id: 'ASC' },
     });
 
     for (const averia of averias) {

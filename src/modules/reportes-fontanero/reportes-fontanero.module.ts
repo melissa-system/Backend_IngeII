@@ -6,12 +6,11 @@ import { ReporteFontanero } from './entities/reporte-fontanero.entity';
 import { MaterialReporteFontanero } from './entities/material-reporte-fontanero.entity';
 import { Empleado } from '../empleados/entities/empleado.entity';
 import { User } from '../auth/entities/user.entity';
-import { InventarioModule } from '../inventario/inventario.module';
 import { BitacoraModule } from '../bitacora/bitacora.module';
 
 @Module({
-  // InventarioModule provee InventarioService, que es quien descuenta el
-  // stock de los materiales usados (ver descontarMaterialEnTransaccion).
+  // Los materiales van en texto libre dentro del propio reporte y ya no se
+  // descuentan del inventario (entrada/salida de stock es de administración).
   imports: [
     TypeOrmModule.forFeature([
       ReporteFontanero,
@@ -19,7 +18,6 @@ import { BitacoraModule } from '../bitacora/bitacora.module';
       Empleado,
       User,
     ]),
-    InventarioModule,
     BitacoraModule,
   ],
   controllers: [ReportesFontaneroController],

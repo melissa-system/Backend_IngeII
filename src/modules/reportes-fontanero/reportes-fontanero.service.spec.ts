@@ -2,16 +2,13 @@ import { BadRequestException } from '@nestjs/common';
 import { ReportesFontaneroService } from './reportes-fontanero.service';
 import { TipoActividad } from './entities/reporte-fontanero.enums';
 
-// Pruebas del registro de actividad del fontanero. Lo más delicado es el
-// descuento de materiales: tiene que ser atómico (o se descuentan todos o
-// ninguno) y nunca dejar el inventario en negativo.
+// Pruebas del registro de actividad del fontanero. Los materiales van en
+// texto libre dentro del reporte (sin descuento de inventario), así que la
+// transacción solo guarda el reporte en sí.
 
 describe('ReportesFontaneroService', () => {
   let service: ReportesFontaneroService;
   let reportes: any[];
-  let materiales: any[];
-  let stock: Map<number, { id: number; nombre: string; cantidad: number }>;
-  let inventarioService: { descontarMaterialEnTransaccion: jest.Mock };
   let bitacoraService: { registrarCreacion: jest.Mock };
   let empleadoRepository: any;
 
@@ -25,22 +22,16 @@ describe('ReportesFontaneroService', () => {
     tiempoMinutos: 120,
   };
 
-  // "Transacción" simulada: guarda los cambios en arreglos y, si el callback
-  // lanza, los revierte — igual que haría MySQL con un ROLLBACK.
+  // "Transacción" simulada: guarda los cambios en un arreglo y, si el
+  // callback lanza, los revierte — igual que haría MySQL con un ROLLBACK.
   function dataSourceFalso() {
     return {
       transaction: async (fn: (m: any) => Promise<any>) => {
         const reportesAntes = [...reportes];
-        const materialesAntes = [...materiales];
-        const stockAntes = new Map(
-          [...stock].map(([k, v]) => [k, { ...v }]),
-        );
         try {
           return await fn(managerFalso());
         } catch (error) {
           reportes = reportesAntes;
-          materiales = materialesAntes;
-          stock = stockAntes;
           throw error;
         }
       },
@@ -53,8 +44,7 @@ describe('ReportesFontaneroService', () => {
       create: (_entidad: unknown, datos: any) => ({ ...datos }),
       save: (_entidad: any, fila: any) => {
         if (fila.id === undefined) fila.id = siguienteId++;
-        if ('tipo_actividad' in fila) reportes.push(fila);
-        else materiales.push(fila);
+        reportes.push(fila);
         return Promise.resolve(fila);
       },
     };
@@ -62,31 +52,6 @@ describe('ReportesFontaneroService', () => {
 
   beforeEach(() => {
     reportes = [];
-    materiales = [];
-    stock = new Map([
-      [1, { id: 1, nombre: 'Tubo PVC 1/2', cantidad: 10 }],
-      [2, { id: 2, nombre: 'Codo PVC', cantidad: 3 }],
-    ]);
-
-    // Simula el descuento real: valida stock y lo baja, como hace el
-    // servicio de inventario.
-    inventarioService = {
-      descontarMaterialEnTransaccion: jest.fn((_manager: any, params: any) => {
-        const articulo = stock.get(params.articuloId);
-        if (!articulo) {
-          return Promise.reject(new BadRequestException('material inexistente'));
-        }
-        if (articulo.cantidad < params.cantidad) {
-          return Promise.reject(
-            new BadRequestException(
-              `No hay suficiente "${articulo.nombre}": disponibles ${articulo.cantidad}, solicitados ${params.cantidad}`,
-            ),
-          );
-        }
-        articulo.cantidad -= params.cantidad;
-        return Promise.resolve({ articulo: { ...articulo } });
-      }),
-    };
 
     bitacoraService = { registrarCreacion: jest.fn(() => Promise.resolve()) };
 
@@ -106,10 +71,8 @@ describe('ReportesFontaneroService', () => {
 
     service = new ReportesFontaneroService(
       reporteRepository as any,
-      {} as any,
       empleadoRepository as any,
       { findOneBy: jest.fn(() => Promise.resolve({ id: 9, email: 'luis@asada.test' })) } as any,
-      inventarioService as any,
       bitacoraService as any,
       dataSourceFalso(),
     );
@@ -121,6 +84,7 @@ describe('ReportesFontaneroService', () => {
     expect(reportes).toHaveLength(1);
     expect(reportes[0].empleado_id).toBe(4);
     expect(reportes[0].tiempo_minutos).toBe(120);
+    expect(reportes[0].materiales_texto).toBeNull();
   });
 
   it('rechaza el reporte si la cuenta no está vinculada a un empleado', async () => {
@@ -130,67 +94,24 @@ describe('ReportesFontaneroService', () => {
     expect(reportes).toHaveLength(0);
   });
 
-  it('descuenta del inventario cada material utilizado', async () => {
+  it('guarda los materiales en texto libre recortados', async () => {
     await service.crear(
-      { ...dtoBase, materiales: [{ articuloId: 1, cantidad: 4 }] } as any,
+      {
+        ...dtoBase,
+        materialesTexto: '  2 m de tubo PVC, 1 codo, 3 m de cable  ',
+      } as any,
       usuarioFontanero,
     );
 
-    expect(stock.get(1)!.cantidad).toBe(6);
-    expect(materiales).toHaveLength(1);
-    expect(materiales[0].nombre_articulo).toBe('Tubo PVC 1/2');
+    expect(reportes).toHaveLength(1);
+    expect(reportes[0].materiales_texto).toBe('2 m de tubo PVC, 1 codo, 3 m de cable');
   });
 
-  it('suma las cantidades si el mismo material aparece dos veces', async () => {
-    // El formulario permite agregar filas y es fácil elegir el mismo
-    // material dos veces; si no se agruparan, se validaría el stock por
-    // separado y podría pasar una cantidad total mayor a la disponible.
-    // Total 4 sobre 3 disponibles: debe fallar como una sola petición de 4,
-    // en vez de descontar 2 y 2 por separado (que sí pasarían la validación
-    // una por una y dejarían el stock en -1).
-    await expect(
-      service.crear(
-        {
-          ...dtoBase,
-          materiales: [
-            { articuloId: 2, cantidad: 2 },
-            { articuloId: 2, cantidad: 2 },
-          ],
-        } as any,
-        usuarioFontanero,
-      ),
-    ).rejects.toThrow(/No hay suficiente/);
-
-    expect(inventarioService.descontarMaterialEnTransaccion).toHaveBeenCalledTimes(1);
-    expect(stock.get(2)!.cantidad).toBe(3);
-  });
-
-  it('no guarda nada si falta stock de alguno de los materiales', async () => {
-    await expect(
-      service.crear(
-        {
-          ...dtoBase,
-          materiales: [
-            { articuloId: 1, cantidad: 2 }, // hay de sobra
-            { articuloId: 2, cantidad: 50 }, // no alcanza
-          ],
-        } as any,
-        usuarioFontanero,
-      ),
-    ).rejects.toThrow(/No hay suficiente/);
-
-    // Lo importante: el primer material tampoco quedó descontado y no se
-    // guardó ni el reporte ni sus materiales.
-    expect(stock.get(1)!.cantidad).toBe(10);
-    expect(reportes).toHaveLength(0);
-    expect(materiales).toHaveLength(0);
-  });
-
-  it('permite un reporte sin materiales (no todo trabajo consume inventario)', async () => {
+  it('permite un reporte sin materiales (no todo trabajo consume material)', async () => {
     await service.crear(dtoBase as any, usuarioFontanero);
 
     expect(reportes).toHaveLength(1);
-    expect(inventarioService.descontarMaterialEnTransaccion).not.toHaveBeenCalled();
+    expect(reportes[0].materiales_texto).toBeNull();
   });
 
   it('deja el movimiento auditado en la bitácora', async () => {
