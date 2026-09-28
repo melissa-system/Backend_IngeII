@@ -29,6 +29,7 @@ import {
   MENSAJE_FORMATO_FOTO_NO_PERMITIDO,
   mensajeTamanoExcedido,
 } from '../../../../common/config/archivos-permitidos.config';
+import { ProtegidoConRecaptcha } from '../../../../common/recaptcha/recaptcha.decorator';
 
 // Tamaño máximo permitido por archivo adjunto (5 MB)
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -41,12 +42,15 @@ const CAMPOS_FOTO_IDENTIFICACION = ['cedulaFrente', 'cedulaDorso'];
 export class SolicitudesController {
   constructor(private readonly solicitudesService: SolicitudesService) {}
 
-  // Ruta pública: formulario web de solicitud de paja de agua. Sin guards:
-  // JwtAuthGuard no respeta @Public(), así que aquí no se aplica ninguno.
+  // Ruta pública: formulario web de solicitud de paja de agua. No lleva
+  // JwtAuthGuard (no respeta @Public()), pero sí reCAPTCHA: es un
+  // formulario abierto a internet y sin esa verificación un bot podría
+  // registrar solicitudes falsas en masa.
   //
   // Los archivos se reciben en MEMORIA (memoryStorage) y el service los sube
   // a Cloudinary; ya no se escribe nada en el disco del servidor.
   @Post()
+  @ProtegidoConRecaptcha()
   @UseInterceptors(
     FileFieldsInterceptor(
       [

@@ -4,7 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Like } from 'typeorm';
+import { Repository, DataSource, Like, EntityManager } from 'typeorm';
 import { Articulo } from './entities/articulo.entity';
 import { MovimientoInventario } from './entities/movimiento-inventario.entity';
 import { Proveedor } from './entities/proveedor.entity';
@@ -333,6 +333,84 @@ export class InventarioService {
         movimiento: movimientoGuardado,
       };
     });
+  }
+
+  // Descuenta stock DENTRO de una transacción abierta por otro módulo.
+  //
+  // Existe además de registrarMovimiento() porque ese abre su propia
+  // transacción por artículo: sirve para un movimiento suelto, pero no para
+  // un reporte de fontanero que consume varios materiales, donde o se
+  // descuentan todos o no se descuenta ninguno. Acá el `manager` lo aporta
+  // quien llama, así que todo ocurre en la misma transacción.
+  //
+  // La lógica de stock (validaciones, movimiento, auditoría) se mantiene en
+  // este servicio y no se copia en el otro módulo, para que siga habiendo un
+  // solo lugar donde se modifican las existencias.
+  async descontarMaterialEnTransaccion(
+    manager: EntityManager,
+    params: {
+      articuloId: number;
+      cantidad: number;
+      motivo: string;
+      responsable?: string | null;
+      usuarioId: number;
+      nombreRegistro: string;
+      autor: { id: number | null; email: string | null };
+    },
+  ): Promise<{ articulo: Articulo; movimiento: MovimientoInventario }> {
+    const articulo = await manager.findOne(Articulo, {
+      where: { id: params.articuloId },
+    });
+
+    if (!articulo) {
+      throw new NotFoundException(
+        `El material con ID #${params.articuloId} no existe en el inventario`,
+      );
+    }
+
+    if (articulo.estado === 'inactivo') {
+      throw new BadRequestException(
+        `El material "${articulo.nombre}" está inactivo y no se puede usar`,
+      );
+    }
+
+    if (articulo.cantidad_disponible < params.cantidad) {
+      throw new BadRequestException(
+        `No hay suficiente "${articulo.nombre}": disponibles ${articulo.cantidad_disponible}, solicitados ${params.cantidad}`,
+      );
+    }
+
+    const stockAnterior = articulo.cantidad_disponible;
+    articulo.cantidad_disponible -= params.cantidad;
+    const articuloActualizado = await manager.save(Articulo, articulo);
+
+    const movimiento = await manager.save(
+      MovimientoInventario,
+      manager.create(MovimientoInventario, {
+        articulo: articuloActualizado,
+        tipo_movimiento: 'salida',
+        cantidad: params.cantidad,
+        responsable_destino: params.responsable ?? params.nombreRegistro,
+        motivo: params.motivo,
+        usuario_id: params.usuarioId,
+        nombre_persona_registro: params.nombreRegistro,
+      }),
+    );
+
+    // La auditoría nunca lanza excepción (ver BitacoraService), así que no
+    // puede hacer fallar la transacción.
+    await this.bitacoraService.registrar({
+      modulo: ModuloBitacora.INVENTARIO,
+      registro_id: articuloActualizado.id,
+      accion: AccionBitacora.EDICION,
+      autor: params.autor,
+      campo: 'cantidad_disponible',
+      valor_anterior: String(stockAnterior),
+      valor_nuevo: String(articuloActualizado.cantidad_disponible),
+      observaciones: `SALIDA: ${params.cantidad} uds. Motivo: ${params.motivo}`,
+    });
+
+    return { articulo: articuloActualizado, movimiento };
   }
 
   async obtenerHistorialArticulo(id: number): Promise<MovimientoInventario[]> {
