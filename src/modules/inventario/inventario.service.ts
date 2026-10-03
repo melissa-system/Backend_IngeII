@@ -25,6 +25,7 @@ import {
   formatearTelefono,
   normalizarCorreo,
 } from '../../common/validacion/reglas-validacion';
+import { errorDeCampo } from '../../common/errores/respuesta-error';
 
 @Injectable()
 export class InventarioService {
@@ -516,9 +517,7 @@ export class InventarioService {
         })
         .getOne();
       if (mismoNombre && mismoNombre.id !== idActual) {
-        throw new ConflictException(
-          `Ya existe un proveedor registrado con el nombre "${mismoNombre.nombre}".`,
-        );
+        throw new ConflictException(errorDeCampo('nombre', `Ya existe un proveedor registrado con el nombre "${mismoNombre.nombre}".`));
       }
     }
     const correoNormalizado = normalizarCorreo(correo);
@@ -528,9 +527,7 @@ export class InventarioService {
         .where('LOWER(TRIM(p.correo)) = :correo', { correo: correoNormalizado })
         .getOne();
       if (mismoCorreo && mismoCorreo.id !== idActual) {
-        throw new ConflictException(
-          `Ya existe un proveedor registrado con el correo ${correoNormalizado}.`,
-        );
+        throw new ConflictException(errorDeCampo('correo', `Ya existe un proveedor registrado con el correo ${correoNormalizado}.`));
       }
     }
   }

@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConflictException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { DocumentosService } from './documentos.service';
 import { Documento } from './entities/documento.entity';
 import { EmpleadosService } from '../empleados/empleados.service';
@@ -198,7 +198,7 @@ describe('DocumentosService', () => {
           { nombre: 'Reglamento interno', tipo: TipoDocumento.OTRO, visibilidad: VisibilidadDocumento.INTERNO },
           crearArchivoFalso(),
         ),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(ConflictException);
       // No debe gastar cuota de Cloudinary si el nombre ya existía.
       expect(cloudinaryService.subirArchivo).not.toHaveBeenCalled();
     });
@@ -364,7 +364,7 @@ describe('DocumentosService', () => {
 
       await expect(
         service.update(docB.id, { nombre: 'Nombre A' }),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(ConflictException);
     });
   });
 

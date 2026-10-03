@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -19,6 +20,7 @@ import {
   formatearCedula,
   formatearTelefono,
 } from '../../common/validacion/reglas-validacion';
+import { errorDeCampo } from '../../common/errores/respuesta-error';
 
 export interface EmpleadoPlano {
   id: number;
@@ -82,7 +84,7 @@ export class EmpleadosService {
     if (confirmar) return;
     const abonado = await this.abonadoRepository.findOneBy({ cedula });
     if (abonado) {
-      throw new BadRequestException({
+      throw new ConflictException({
         requiereConfirmacion: true,
         tipo: 'abonado',
         registro: { id: abonado.id, nombre: abonado.nombre },
@@ -129,9 +131,7 @@ export class EmpleadosService {
       where: { cedula: datos.cedula },
     });
     if (cedulaExistente) {
-      throw new BadRequestException(
-        `Ya existe un empleado con la cédula ${datos.cedula}`,
-      );
+      throw new ConflictException(errorDeCampo('cedula', `Ya existe un empleado con la cédula ${datos.cedula}`));
     }
     await this.verificarCedulaNoUsadaPorAbonado(
       datos.cedula,
@@ -146,7 +146,7 @@ export class EmpleadosService {
         where: { id: datos.usuario_id },
       });
       if (!usuario) {
-        throw new BadRequestException(
+        throw new NotFoundException(
           `No existe un usuario con id ${datos.usuario_id}`,
         );
       }
@@ -196,7 +196,7 @@ export class EmpleadosService {
       where: { usuario: { id: usuario.id } },
     });
     if (yaVinculado) {
-      throw new BadRequestException(
+      throw new ConflictException(
         `El usuario ${usuario.email} ya está vinculado a otro empleado`,
       );
     }
@@ -292,9 +292,7 @@ export class EmpleadosService {
         where: { cedula: datos.cedula },
       });
       if (duplicado) {
-        throw new BadRequestException(
-          `Ya existe un empleado con la cédula ${datos.cedula}`,
-        );
+        throw new ConflictException(errorDeCampo('cedula', `Ya existe un empleado con la cédula ${datos.cedula}`));
       }
       await this.verificarCedulaNoUsadaPorAbonado(
         datos.cedula,
@@ -310,7 +308,7 @@ export class EmpleadosService {
           where: { id: datos.usuario_id },
         });
         if (!usuario) {
-          throw new BadRequestException(
+          throw new NotFoundException(
             `No existe un usuario con id ${datos.usuario_id}`,
           );
         }
@@ -318,7 +316,7 @@ export class EmpleadosService {
           where: { usuario: { id: usuario.id } },
         });
         if (yaVinculado && yaVinculado.id !== id) {
-          throw new BadRequestException(
+          throw new ConflictException(
             `El usuario ${usuario.email} ya está vinculado a otro empleado`,
           );
         }
@@ -453,7 +451,7 @@ export class EmpleadosService {
     }
 
     if (empleado.usuario) {
-      throw new BadRequestException(
+      throw new ConflictException(
         `El empleado ${empleado.nombre} ya tiene una cuenta de acceso vinculada (${empleado.usuario.email}).`,
       );
     }
@@ -469,9 +467,7 @@ export class EmpleadosService {
       where: { usuario: { email: correo } },
     });
     if (yaVinculado && yaVinculado.id !== id) {
-      throw new BadRequestException(
-        `El correo ${correo} ya está vinculado a otro empleado (${yaVinculado.nombre}).`,
-      );
+      throw new ConflictException(errorDeCampo('correo', `El correo ${correo} ya está vinculado a otro empleado (${yaVinculado.nombre}).`));
     }
 
     const rol = this.rolParaPuesto(empleado.puesto);

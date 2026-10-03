@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
@@ -26,6 +27,7 @@ import {
   MENSAJES_VALIDACION,
   TipoIdentificacion,
 } from '../../common/validacion/reglas-validacion';
+import { errorDeCampo } from '../../common/errores/respuesta-error';
 
 // Nombre legible de cada campo obligatorio para los mensajes de error.
 const MENSAJES_OBLIGATORIO = {
@@ -160,7 +162,9 @@ export class AbonadosService {
     for (const campo of camposObligatorios) {
       const valor = datos[campo];
       if (!valor || String(valor).trim() === '') {
-        throw new BadRequestException(MENSAJES_OBLIGATORIO[campo]);
+        throw new BadRequestException(
+          errorDeCampo(campo, MENSAJES_OBLIGATORIO[campo]),
+        );
       }
     }
 
@@ -170,7 +174,10 @@ export class AbonadosService {
         datos.nombre_representante_legal.trim() === ''
       ) {
         throw new BadRequestException(
-          'El nombre del representante legal es obligatorio para personas jurídicas.',
+          errorDeCampo(
+            'nombre_representante_legal',
+            'El nombre del representante legal es obligatorio para personas jurídicas.',
+          ),
         );
       }
       if (
@@ -178,7 +185,10 @@ export class AbonadosService {
         datos.cedula_representante.trim() === ''
       ) {
         throw new BadRequestException(
-          'La cédula del representante legal es obligatoria para personas jurídicas.',
+          errorDeCampo(
+            'cedula_representante',
+            'La cédula del representante legal es obligatoria para personas jurídicas.',
+          ),
         );
       }
     }
@@ -192,9 +202,12 @@ export class AbonadosService {
       !esIdentificacion(datos.cedula, tiposCedula)
     ) {
       throw new BadRequestException(
-        datos.tipo_abonado === 'Jurídica'
-          ? MENSAJES_VALIDACION.cedulaJuridica
-          : 'La cédula de una persona física debe tener 9 dígitos (o 11-12 si es DIMEX).',
+        errorDeCampo(
+          'cedula',
+          datos.tipo_abonado === 'Jurídica'
+            ? MENSAJES_VALIDACION.cedulaJuridica
+            : 'La cédula de una persona física debe tener 9 dígitos (o 11-12 si es DIMEX).',
+        ),
       );
     }
     if (
@@ -203,14 +216,21 @@ export class AbonadosService {
       !esIdentificacion(datos.cedula_representante, ['fisica', 'dimex'])
     ) {
       throw new BadRequestException(
-        'La cédula del representante legal debe ser una cédula física (9 dígitos) o un DIMEX (11 o 12 dígitos).',
+        errorDeCampo(
+          'cedula_representante',
+          'La cédula del representante legal debe ser una cédula física (9 dígitos) o un DIMEX (11 o 12 dígitos).',
+        ),
       );
     }
     if (camposFormato.has('telefono') && !esTelefono(datos.telefono)) {
-      throw new BadRequestException(MENSAJES_VALIDACION.telefono);
+      throw new BadRequestException(
+        errorDeCampo('telefono', MENSAJES_VALIDACION.telefono),
+      );
     }
     if (camposFormato.has('correo') && !esCorreo(datos.correo)) {
-      throw new BadRequestException(MENSAJES_VALIDACION.correo);
+      throw new BadRequestException(
+        errorDeCampo('correo', MENSAJES_VALIDACION.correo),
+      );
     }
   }
 
@@ -231,8 +251,11 @@ export class AbonadosService {
       cedula: createAbonadoDto.cedula,
     });
     if (cedulaExistente) {
-      throw new BadRequestException(
-        `Ya existe un abonado registrado con la cédula ${createAbonadoDto.cedula}`,
+      throw new ConflictException(
+        errorDeCampo(
+          'cedula',
+          `Ya existe un abonado registrado con la cédula ${createAbonadoDto.cedula}`,
+        ),
       );
     }
 
@@ -245,7 +268,7 @@ export class AbonadosService {
       cedula: createAbonadoDto.cedula,
     });
     if (empleadoConEsaCedula && !createAbonadoDto.confirmarVinculacion) {
-      throw new BadRequestException({
+      throw new ConflictException({
         requiereConfirmacion: true,
         tipo: 'empleado',
         registro: {
@@ -260,8 +283,11 @@ export class AbonadosService {
       correo: createAbonadoDto.correo,
     });
     if (correoExistente) {
-      throw new BadRequestException(
-        `Ya existe un abonado registrado con el correo ${createAbonadoDto.correo}`,
+      throw new ConflictException(
+        errorDeCampo(
+          'correo',
+          `Ya existe un abonado registrado con el correo ${createAbonadoDto.correo}`,
+        ),
       );
     }
 
@@ -269,8 +295,11 @@ export class AbonadosService {
       telefono: createAbonadoDto.telefono,
     });
     if (telefonoExistente) {
-      throw new BadRequestException(
-        `Ya existe un abonado registrado con el teléfono ${createAbonadoDto.telefono}`,
+      throw new ConflictException(
+        errorDeCampo(
+          'telefono',
+          `Ya existe un abonado registrado con el teléfono ${createAbonadoDto.telefono}`,
+        ),
       );
     }
 
@@ -344,7 +373,7 @@ export class AbonadosService {
     const abonado = await this.cargarConDetalle(id);
 
     if (abonado.usuario) {
-      throw new BadRequestException(
+      throw new ConflictException(
         `El abonado ${abonado.numero_abonado} ya tiene una cuenta de acceso vinculada.`,
       );
     }
@@ -658,8 +687,11 @@ export class AbonadosService {
         correo: abonado.correo,
       });
       if (otroConCorreo && otroConCorreo.id !== abonado.id) {
-        throw new BadRequestException(
-          `Ya existe un abonado registrado con el correo ${abonado.correo}`,
+        throw new ConflictException(
+          errorDeCampo(
+            'correo',
+            `Ya existe un abonado registrado con el correo ${abonado.correo}`,
+          ),
         );
       }
     }
@@ -669,8 +701,11 @@ export class AbonadosService {
         telefono: abonado.telefono,
       });
       if (otroConTelefono && otroConTelefono.id !== abonado.id) {
-        throw new BadRequestException(
-          `Ya existe un abonado registrado con el teléfono ${abonado.telefono}`,
+        throw new ConflictException(
+          errorDeCampo(
+            'telefono',
+            `Ya existe un abonado registrado con el teléfono ${abonado.telefono}`,
+          ),
         );
       }
     }

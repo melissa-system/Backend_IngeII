@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
@@ -18,6 +19,7 @@ import { CloudinaryService } from '../../config/cloudinary.service';
 import { User } from '../auth/entities/user.entity';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { ModuloBitacora } from '../bitacora/entities/bitacora.enums';
+import { errorDeCampo } from '../../common/errores/respuesta-error';
 
 // Carpeta dentro de la cuenta de Cloudinary donde viven estos documentos
 const CARPETA_CLOUDINARY = 'ASADA/documentos';
@@ -59,9 +61,7 @@ export class DocumentosService {
       where: { nombre: Like(nombre.trim()) },
     });
     if (existente && existente.id !== excluirId) {
-      throw new BadRequestException(
-        `Ya existe un documento con el nombre "${nombre.trim()}". Si querés reemplazar su archivo, usá "Actualizar versión" en ese documento en vez de subir uno nuevo.`,
-      );
+      throw new ConflictException(errorDeCampo('nombre', `Ya existe un documento con el nombre "${nombre.trim()}". Si querés reemplazar su archivo, usá "Actualizar versión" en ese documento en vez de subir uno nuevo.`));
     }
   }
 
