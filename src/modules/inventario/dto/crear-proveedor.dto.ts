@@ -3,12 +3,22 @@ import {
   IsString,
   IsOptional,
   IsIn,
-  IsEmail,
+  MaxLength,
+  ValidateIf,
 } from 'class-validator';
+import {
+  EsCorreo,
+  EsTelefono,
+} from '../../../common/validacion/decoradores-validacion';
 
+// Los campos opcionales pueden llegar vacíos desde el formulario; solo se
+// valida su formato cuando traen un valor.
 export class CrearProveedorDto {
   @IsNotEmpty({ message: 'El nombre del proveedor es obligatorio' })
-  @IsString()
+  @IsString({ message: 'El nombre del proveedor debe ser texto.' })
+  @MaxLength(200, {
+    message: 'El nombre del proveedor no puede superar los 200 caracteres.',
+  })
   nombre: string;
 
   @IsOptional()
@@ -18,19 +28,26 @@ export class CrearProveedorDto {
   tipo?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({ message: 'El contacto debe ser texto.' })
+  @MaxLength(150, {
+    message: 'El contacto no puede superar los 150 caracteres.',
+  })
   contacto?: string;
 
-  @IsOptional()
-  @IsString()
+  @ValidateIf((o: CrearProveedorDto) => !!o.telefono)
+  @EsTelefono()
   telefono?: string;
 
-  @IsOptional()
-  @IsEmail({}, { message: 'El correo debe ser una dirección válida' })
+  @ValidateIf((o: CrearProveedorDto) => !!o.correo)
+  @EsCorreo()
+  @MaxLength(150, { message: 'El correo no puede superar los 150 caracteres.' })
   correo?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({ message: 'La dirección debe ser texto.' })
+  @MaxLength(255, {
+    message: 'La dirección no puede superar los 255 caracteres.',
+  })
   direccion?: string;
 
   @IsOptional()
@@ -39,4 +56,3 @@ export class CrearProveedorDto {
   })
   estado?: string;
 }
-

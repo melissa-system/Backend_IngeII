@@ -6,16 +6,17 @@ import {
   IsOptional,
   IsString,
   Length,
-  Matches,
+  MaxLength,
+  ValidateIf,
   Min,
 } from 'class-validator';
+import {
+  EsCedula,
+  EsTelefono,
+} from '../../../../common/validacion/decoradores-validacion';
 
-// Formatos de identificación válidos en Costa Rica:
-//   Cédula física:   1-2345-6789
-//   Cédula jurídica: 3-101-123456 (1-3-6 dígitos)
-//   DIMEX:           11 o 12 dígitos
-const IDENTIFICACION_REGEX = /^(\d{1}-\d{4}-\d{4}|\d{1}-\d{3}-\d{6}|\d{11,12})$/;
-
+// Cédula, teléfono y correo siguen las reglas comunes del sistema
+// (common/validacion), igual que el resto de formularios.
 export class CrearSolicitudCambioRepresentanteDto {
   // Solo lo usa un administrador que genera la solicitud para otro abonado.
   // Si quien crea es un abonado logueado, el id se resuelve desde su token
@@ -29,13 +30,11 @@ export class CrearSolicitudCambioRepresentanteDto {
 
   @IsNotEmpty({ message: 'El nombre del nuevo representante es obligatorio' })
   @IsString({ message: 'El nombre debe ser texto' })
+  @MaxLength(150, { message: 'El nombre no puede superar los 150 caracteres.' })
   representanteNuevoNombre: string;
 
   @IsNotEmpty({ message: 'La cédula del nuevo representante es obligatoria' })
-  @Matches(IDENTIFICACION_REGEX, {
-    message:
-      'Formato de cédula inválido. Usa cédula (1-2345-6789), cédula jurídica (3-101-123456) o DIMEX (11-12 dígitos)',
-  })
+  @EsCedula()
   representanteNuevoCedula: string;
 
   @IsOptional()
@@ -46,8 +45,13 @@ export class CrearSolicitudCambioRepresentanteDto {
   @IsEmail({}, { message: 'El correo del nuevo representante no es válido' })
   representanteNuevoCorreo?: string;
 
-  @IsOptional()
-  @IsString({ message: 'El teléfono del nuevo representante debe ser texto' })
+  @ValidateIf(
+    (o: CrearSolicitudCambioRepresentanteDto) => !!o.representanteNuevoTelefono,
+  )
+  @EsTelefono({
+    message:
+      'El teléfono del nuevo representante debe tener 8 dígitos (ej. 8888-8888).',
+  })
   representanteNuevoTelefono?: string;
 
   @IsNotEmpty({ message: 'La justificación es obligatoria' })

@@ -77,7 +77,8 @@ export class AveriasController {
   actualizar(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateAveriaDto,
+    @Request() req: { user?: RequestUser },
   ) {
-    return this.averiasService.actualizar(id, dto);
+    return this.averiasService.actualizar(id, dto, req.user?.id);
   }
 }

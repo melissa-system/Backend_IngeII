@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, Repository } from 'typeorm';
@@ -205,7 +206,7 @@ export class SolicitudesCambioPropietarioService {
       },
     });
     if (duplicada) {
-      throw new BadRequestException(
+      throw new ConflictException(
         `Ya existe una solicitud de cambio de propietario en curso (${duplicada.codigo_solicitud}). Espera a que se resuelva antes de crear otra.`,
       );
     }

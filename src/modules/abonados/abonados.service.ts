@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
@@ -17,6 +18,25 @@ import { FiltroEstadisticasAbonadosDto } from './dto/filtro-estadisticas-abonado
 import { AuthService } from '../auth/auth.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { ModuloBitacora } from '../bitacora/entities/bitacora.enums';
+import {
+  esCorreo,
+  esIdentificacion,
+  esTelefono,
+  formatearCedula,
+  formatearTelefono,
+  MENSAJES_VALIDACION,
+  TipoIdentificacion,
+} from '../../common/validacion/reglas-validacion';
+import { errorDeCampo } from '../../common/errores/respuesta-error';
+
+// Nombre legible de cada campo obligatorio para los mensajes de error.
+const MENSAJES_OBLIGATORIO = {
+  nombre: 'El nombre es obligatorio.',
+  cedula: 'La cédula es obligatoria.',
+  telefono: 'El teléfono es obligatorio.',
+  correo: 'El correo electrónico es obligatorio.',
+  direccion: 'La dirección es obligatoria.',
+} as const;
 
 // Forma "plana" que consume el frontend: junta la fila base con los campos
 // de la subtabla que corresponda (fisico o juridico) en un solo objeto,
@@ -102,50 +122,35 @@ export class AbonadosService {
     };
   }
 
-  // Uniforma teléfonos de 8 dígitos al formato XXXX-XXXX. Cualquier otro
-  // formato (internacionales, extensiones, etc.) se respeta tal cual.
-  private formatearTelefono(telefono?: string | null): string | null {
-    if (!telefono) return telefono ?? null;
-    const digitos = telefono.replace(/\D/g, '');
-    if (digitos.length === 8) {
-      return `${digitos.slice(0, 4)}-${digitos.slice(4)}`;
-    }
-    return String(telefono).trim();
-  }
-
-  // Uniforma cédulas costarricenses: física (9 dígitos) como X-XXXX-XXXX
-  // y jurídica (10 dígitos) como X-XXX-XXXXXX. Otros documentos (DIMEX,
-  // pasaportes, etc.) se dejan tal cual.
-  private formatearCedula(cedula?: string | null): string | null {
-    if (!cedula) return cedula ?? null;
-    const digitos = cedula.replace(/\D/g, '');
-    if (digitos.length === 9) {
-      return `${digitos.slice(0, 1)}-${digitos.slice(1, 5)}-${digitos.slice(5)}`;
-    }
-    if (digitos.length === 10) {
-      return `${digitos.slice(0, 1)}-${digitos.slice(1, 4)}-${digitos.slice(4)}`;
-    }
-    return String(cedula).trim();
-  }
-
   // Reglas de negocio compartidas entre creación y actualización: campos
   // obligatorios de la tabla base, y los exclusivos de cada subtabla según
   // tipo_abonado (representante legal + su cédula para jurídica).
-  private validarDatosAbonado(datos: {
-    tipo_abonado: string;
-    nombre?: string | null;
-    cedula?: string | null;
-    telefono?: string | null;
-    correo?: string | null;
-    direccion?: string | null;
-    apellido1?: string | null;
-    nombre_representante_legal?: string | null;
-    cedula_representante?: string | null;
-  }): void {
+  private validarDatosAbonado(
+    datos: {
+      tipo_abonado: string;
+      nombre?: string | null;
+      cedula?: string | null;
+      telefono?: string | null;
+      correo?: string | null;
+      direccion?: string | null;
+      apellido1?: string | null;
+      nombre_representante_legal?: string | null;
+      cedula_representante?: string | null;
+    },
+    // Campos cuyo formato se revisa. Al crear se revisan todos; al editar solo
+    // los que cambiaron, para no bloquear la edición de registros antiguos
+    // guardados antes de que existieran estas reglas.
+    camposFormato: ReadonlySet<string> = new Set([
+      'cedula',
+      'cedula_representante',
+      'telefono',
+      'correo',
+    ]),
+  ): void {
     // Antes de validar se uniforma el formato: si el usuario no escribió
     // los guiones del teléfono o la cédula, se agregan automáticamente.
-    datos.telefono = this.formatearTelefono(datos.telefono);
-    datos.cedula = this.formatearCedula(datos.cedula);
+    datos.telefono = formatearTelefono(datos.telefono);
+    datos.cedula = formatearCedula(datos.cedula);
 
     const camposObligatorios = [
       'nombre',
@@ -157,7 +162,9 @@ export class AbonadosService {
     for (const campo of camposObligatorios) {
       const valor = datos[campo];
       if (!valor || String(valor).trim() === '') {
-        throw new BadRequestException(`El campo '${campo}' es obligatorio`);
+        throw new BadRequestException(
+          errorDeCampo(campo, MENSAJES_OBLIGATORIO[campo]),
+        );
       }
     }
 
@@ -167,7 +174,10 @@ export class AbonadosService {
         datos.nombre_representante_legal.trim() === ''
       ) {
         throw new BadRequestException(
-          `El campo 'nombre_representante_legal' es obligatorio para personas jurídicas`,
+          errorDeCampo(
+            'nombre_representante_legal',
+            'El nombre del representante legal es obligatorio para personas jurídicas.',
+          ),
         );
       }
       if (
@@ -175,14 +185,51 @@ export class AbonadosService {
         datos.cedula_representante.trim() === ''
       ) {
         throw new BadRequestException(
-          `El campo 'cedula_representante' es obligatorio para personas jurídicas`,
+          errorDeCampo(
+            'cedula_representante',
+            'La cédula del representante legal es obligatoria para personas jurídicas.',
+          ),
         );
       }
     }
 
-    if (!String(datos.correo).includes('@')) {
+    // Formatos comunes del sistema (mismas reglas que los DTOs y que el
+    // frontend). La cédula además debe corresponder al tipo de abonado.
+    const tiposCedula: TipoIdentificacion[] =
+      datos.tipo_abonado === 'Jurídica' ? ['juridica'] : ['fisica', 'dimex'];
+    if (
+      camposFormato.has('cedula') &&
+      !esIdentificacion(datos.cedula, tiposCedula)
+    ) {
       throw new BadRequestException(
-        'El correo electrónico no tiene un formato válido',
+        errorDeCampo(
+          'cedula',
+          datos.tipo_abonado === 'Jurídica'
+            ? MENSAJES_VALIDACION.cedulaJuridica
+            : 'La cédula de una persona física debe tener 9 dígitos (o 11-12 si es DIMEX).',
+        ),
+      );
+    }
+    if (
+      camposFormato.has('cedula_representante') &&
+      datos.cedula_representante &&
+      !esIdentificacion(datos.cedula_representante, ['fisica', 'dimex'])
+    ) {
+      throw new BadRequestException(
+        errorDeCampo(
+          'cedula_representante',
+          'La cédula del representante legal debe ser una cédula física (9 dígitos) o un DIMEX (11 o 12 dígitos).',
+        ),
+      );
+    }
+    if (camposFormato.has('telefono') && !esTelefono(datos.telefono)) {
+      throw new BadRequestException(
+        errorDeCampo('telefono', MENSAJES_VALIDACION.telefono),
+      );
+    }
+    if (camposFormato.has('correo') && !esCorreo(datos.correo)) {
+      throw new BadRequestException(
+        errorDeCampo('correo', MENSAJES_VALIDACION.correo),
       );
     }
   }
@@ -204,8 +251,11 @@ export class AbonadosService {
       cedula: createAbonadoDto.cedula,
     });
     if (cedulaExistente) {
-      throw new BadRequestException(
-        `Ya existe un abonado registrado con la cédula ${createAbonadoDto.cedula}`,
+      throw new ConflictException(
+        errorDeCampo(
+          'cedula',
+          `Ya existe un abonado registrado con la cédula ${createAbonadoDto.cedula}`,
+        ),
       );
     }
 
@@ -218,7 +268,7 @@ export class AbonadosService {
       cedula: createAbonadoDto.cedula,
     });
     if (empleadoConEsaCedula && !createAbonadoDto.confirmarVinculacion) {
-      throw new BadRequestException({
+      throw new ConflictException({
         requiereConfirmacion: true,
         tipo: 'empleado',
         registro: {
@@ -233,8 +283,11 @@ export class AbonadosService {
       correo: createAbonadoDto.correo,
     });
     if (correoExistente) {
-      throw new BadRequestException(
-        `Ya existe un abonado registrado con el correo ${createAbonadoDto.correo}`,
+      throw new ConflictException(
+        errorDeCampo(
+          'correo',
+          `Ya existe un abonado registrado con el correo ${createAbonadoDto.correo}`,
+        ),
       );
     }
 
@@ -242,8 +295,11 @@ export class AbonadosService {
       telefono: createAbonadoDto.telefono,
     });
     if (telefonoExistente) {
-      throw new BadRequestException(
-        `Ya existe un abonado registrado con el teléfono ${createAbonadoDto.telefono}`,
+      throw new ConflictException(
+        errorDeCampo(
+          'telefono',
+          `Ya existe un abonado registrado con el teléfono ${createAbonadoDto.telefono}`,
+        ),
       );
     }
 
@@ -317,7 +373,7 @@ export class AbonadosService {
     const abonado = await this.cargarConDetalle(id);
 
     if (abonado.usuario) {
-      throw new BadRequestException(
+      throw new ConflictException(
         `El abonado ${abonado.numero_abonado} ya tiene una cuenta de acceso vinculada.`,
       );
     }
@@ -557,7 +613,7 @@ export class AbonadosService {
     // El teléfono se uniforma aquí (y no solo en la entidad) para que el
     // historial compare el valor ya formateado contra el anterior.
     if (cambios['telefono'] != null) {
-      cambios['telefono'] = this.formatearTelefono(cambios['telefono']);
+      cambios['telefono'] = formatearTelefono(cambios['telefono']);
     }
 
     const camposBase = ['nombre', 'telefono', 'correo', 'direccion'];
@@ -608,17 +664,21 @@ export class AbonadosService {
     }
 
     // Revalida las reglas sobre la entidad ya fusionada, según su tipo real
-    this.validarDatosAbonado({
-      tipo_abonado: abonado.tipo_abonado,
-      nombre: abonado.nombre,
-      cedula: abonado.cedula,
-      telefono: abonado.telefono,
-      correo: abonado.correo,
-      direccion: abonado.direccion,
-      apellido1: abonado.fisico?.apellido1,
-      nombre_representante_legal: abonado.juridico?.nombre_representante_legal,
-      cedula_representante: abonado.juridico?.cedula_representante,
-    });
+    this.validarDatosAbonado(
+      {
+        tipo_abonado: abonado.tipo_abonado,
+        nombre: abonado.nombre,
+        cedula: abonado.cedula,
+        telefono: abonado.telefono,
+        correo: abonado.correo,
+        direccion: abonado.direccion,
+        apellido1: abonado.fisico?.apellido1,
+        nombre_representante_legal:
+          abonado.juridico?.nombre_representante_legal,
+        cedula_representante: abonado.juridico?.cedula_representante,
+      },
+      new Set(Object.keys(cambios)),
+    );
 
     // Si el correo o el teléfono cambiaron, evitar que queden duplicados
     // con OTRO abonado (se excluye el propio registro de la búsqueda).
@@ -627,8 +687,11 @@ export class AbonadosService {
         correo: abonado.correo,
       });
       if (otroConCorreo && otroConCorreo.id !== abonado.id) {
-        throw new BadRequestException(
-          `Ya existe un abonado registrado con el correo ${abonado.correo}`,
+        throw new ConflictException(
+          errorDeCampo(
+            'correo',
+            `Ya existe un abonado registrado con el correo ${abonado.correo}`,
+          ),
         );
       }
     }
@@ -638,8 +701,11 @@ export class AbonadosService {
         telefono: abonado.telefono,
       });
       if (otroConTelefono && otroConTelefono.id !== abonado.id) {
-        throw new BadRequestException(
-          `Ya existe un abonado registrado con el teléfono ${abonado.telefono}`,
+        throw new ConflictException(
+          errorDeCampo(
+            'telefono',
+            `Ya existe un abonado registrado con el teléfono ${abonado.telefono}`,
+          ),
         );
       }
     }

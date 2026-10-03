@@ -1,5 +1,4 @@
 import {
-  IsEmail,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -9,6 +8,11 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import {
+  EsCedula,
+  EsCorreo,
+  EsTelefono,
+} from '../../../../common/validacion/decoradores-validacion';
 
 export const MOTIVOS_TRASPASO_VALIDOS = [
   'Compraventa',
@@ -32,23 +36,29 @@ export class CrearSolicitudCambioPropietarioDto {
   @IsNotEmpty({ message: 'El nombre del nuevo propietario es obligatorio' })
   @IsString({ message: 'El nombre del nuevo propietario debe ser texto' })
   @Length(5, 255, {
-    message: 'El nombre del nuevo propietario debe tener entre 5 y 255 caracteres',
+    message:
+      'El nombre del nuevo propietario debe tener entre 5 y 255 caracteres',
   })
   nombreNuevoPropietario: string;
 
   @IsNotEmpty({ message: 'La cédula del nuevo propietario es obligatoria' })
-  @IsString({ message: 'La cédula del nuevo propietario debe ser texto' })
+  @EsCedula()
   cedulaNuevoPropietario: string;
 
   @IsNotEmpty({ message: 'El teléfono del nuevo propietario es obligatorio' })
-  @IsString({ message: 'El teléfono del nuevo propietario debe ser texto' })
+  @EsTelefono({
+    message:
+      'El teléfono del nuevo propietario debe tener 8 dígitos (ej. 8888-8888).',
+  })
   telefonoNuevoPropietario: string;
 
-  @IsNotEmpty({ message: 'El correo electrónico del nuevo propietario es obligatorio' })
-  @IsEmail(
-    {},
-    { message: 'El correo electrónico del nuevo propietario debe tener un formato válido' },
-  )
+  @IsNotEmpty({
+    message: 'El correo electrónico del nuevo propietario es obligatorio',
+  })
+  @EsCorreo({
+    message:
+      'El correo electrónico del nuevo propietario debe tener un formato válido',
+  })
   correoNuevoPropietario: string;
 
   @IsNotEmpty({ message: 'El motivo del traspaso es obligatorio' })
@@ -65,4 +75,3 @@ export class CrearSolicitudCambioPropietarioDto {
   })
   justificacion: string;
 }
-

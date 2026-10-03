@@ -4,6 +4,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { join } from 'path';
 import * as cookieParser from 'cookie-parser';
 import { configDotenv } from 'dotenv';
+import { FiltroErrores } from './common/errores/filtro-errores.filter';
+import { excepcionDeValidacion } from './common/errores/respuesta-error';
 
 configDotenv({ path: '.env', override: true });
 
@@ -44,15 +46,21 @@ async function bootstrap() {
 
   // Validación global de DTOs.
   // whitelist: false -> no borra campos sin decorador.
-  // forbidUnknownValues: false -> no rechaza DTOs sin metadatos de validación
-  // (evita romper el POST de averías, cuyo DTO aún no usa decoradores).
+  // forbidUnknownValues: false -> no rechaza DTOs sin metadatos de validación.
+  // exceptionFactory -> los errores salen con un mensaje por campo, en el
+  // formato único de common/errores/respuesta-error.ts.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: false,
       transform: true,
       forbidUnknownValues: false,
+      exceptionFactory: excepcionDeValidacion,
     }),
   );
+
+  // Todas las respuestas de error (400, 401, 403, 404, 409, 500...) con el
+  // mismo formato y en español, sin exponer detalles técnicos.
+  app.useGlobalFilters(new FiltroErrores());
 
   // Exponer los archivos adjuntos guardados en uploads/ (ej: solicitudes de paja de agua)
   app.useStaticAssets(join(__dirname, '..', 'uploads'), { prefix: '/uploads' });

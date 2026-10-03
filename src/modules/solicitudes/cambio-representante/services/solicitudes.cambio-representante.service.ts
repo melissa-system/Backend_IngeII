@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, Repository } from 'typeorm';
@@ -226,7 +227,7 @@ export class CambioRepresentanteService {
       },
     });
     if (duplicada) {
-      throw new BadRequestException(
+      throw new ConflictException(
         `Ya existe una solicitud de cambio de representante en curso (${duplicada.codigo_solicitud}). Espera a que se resuelva antes de crear otra.`,
       );
     }

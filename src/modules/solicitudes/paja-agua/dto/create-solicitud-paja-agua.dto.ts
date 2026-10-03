@@ -4,17 +4,18 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  Matches,
   MinLength,
   ValidateIf,
 } from 'class-validator';
+import {
+  EsCedula,
+  EsTelefono,
+} from '../../../../common/validacion/decoradores-validacion';
 
 // Formatos de identificación válidos en Costa Rica:
 //   Cédula física:   1-2345-6789
 //   Cédula jurídica: 3-101-123456 (1-3-6 dígitos)
 //   DIMEX:           11 o 12 dígitos
-const IDENTIFICACION_REGEX = /^(\d{1}-\d{4}-\d{4}|\d{1}-\d{3}-\d{6}|\d{11,12})$/;
-const TELEFONO_REGEX = /^\d{4}-?\d{4}$/;
 
 // Opciones válidas para los selects del formulario (Sección III y IV del
 // formulario GNU-42-01-F1 de AyA, adaptado). Se validan acá también (no
@@ -70,10 +71,7 @@ export class CreateSolicitudPajaAguaDto {
   nombreSolicitante: string;
 
   @IsNotEmpty({ message: 'La identificación es obligatoria' })
-  @Matches(IDENTIFICACION_REGEX, {
-    message:
-      'Formato de identificación inválido. Usa cédula (1-2345-6789), cédula jurídica (3-101-123456) o DIMEX (11-12 dígitos)',
-  })
+  @EsCedula()
   identificacion: string;
 
   @ValidateIf((o) => o.tipoPersona === 'juridica')
@@ -86,22 +84,19 @@ export class CreateSolicitudPajaAguaDto {
   @IsNotEmpty({
     message: 'La cédula del representante es obligatoria para persona jurídica',
   })
-  @Matches(IDENTIFICACION_REGEX, {
-    message: 'Formato de cédula del representante inválido',
+  @EsCedula(['fisica', 'dimex'], {
+    message:
+      'La cédula del representante debe ser una cédula física (9 dígitos) o un DIMEX (11 o 12 dígitos).',
   })
   cedulaRepresentante?: string;
 
   @IsNotEmpty({ message: 'El teléfono es obligatorio' })
-  @Matches(TELEFONO_REGEX, {
-    message: 'Formato de teléfono inválido. Usa el formato 8888-8888',
-  })
+  @EsTelefono()
   telefono: string;
 
   @IsOptional()
   @ValidateIf((o) => o.telefonoSecundario !== '')
-  @Matches(TELEFONO_REGEX, {
-    message: 'Formato de teléfono inválido. Usa el formato 8888-8888',
-  })
+  @EsTelefono()
   telefonoSecundario?: string;
 
   @IsNotEmpty({ message: 'El correo es obligatorio' })

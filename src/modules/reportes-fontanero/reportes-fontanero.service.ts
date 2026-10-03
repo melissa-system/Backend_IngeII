@@ -4,11 +4,18 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, DataSource, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
+import {
+  Between,
+  DataSource,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+  Repository,
+} from 'typeorm';
 import { ReporteFontanero } from './entities/reporte-fontanero.entity';
 import { CrearReporteFontaneroDto } from './dto/crear-reporte-fontanero.dto';
 import { FiltrarReportesFontaneroDto } from './dto/filtrar-reportes-fontanero.dto';
 import { Empleado } from '../empleados/entities/empleado.entity';
+import { Averia } from '../averias/entities/averia.entity';
 import { User } from '../auth/entities/user.entity';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { ModuloBitacora } from '../bitacora/entities/bitacora.enums';
@@ -63,6 +70,19 @@ export class ReportesFontaneroService {
     // de inventario): la entrada/salida de stock es solo de administración.
     const materialesTexto = dto.materialesTexto?.trim() || null;
 
+    // La avería vinculada debe existir: sin esto, un id manipulado terminaba
+    // en un error de llave foránea (500) o en un reporte con un id colgado.
+    if (dto.averiaId) {
+      const existe = await this.dataSource.manager.exists(Averia, {
+        where: { id: dto.averiaId },
+      });
+      if (!existe) {
+        throw new NotFoundException(
+          `No se encontró la avería #${dto.averiaId} para vincular el reporte.`,
+        );
+      }
+    }
+
     const reporteGuardado = await this.dataSource.transaction(async (manager) =>
       manager.save(
         ReporteFontanero,
@@ -95,7 +115,10 @@ export class ReportesFontaneroService {
     limite: number;
   }> {
     const pagina = filtros.pagina ?? 1;
-    const limite = Math.min(filtros.limite ?? LIMITE_POR_DEFECTO, LIMITE_MAXIMO);
+    const limite = Math.min(
+      filtros.limite ?? LIMITE_POR_DEFECTO,
+      LIMITE_MAXIMO,
+    );
 
     const where: Record<string, unknown> = {};
     if (filtros.empleadoId) where.empleado_id = filtros.empleadoId;

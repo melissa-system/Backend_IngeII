@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Like, EntityManager } from 'typeorm';
@@ -20,6 +21,11 @@ import { RegistrarMovimientoDto } from './dto/registrar-movimiento.dto';
 import { CrearProveedorDto } from './dto/crear-proveedor.dto';
 import { ActualizarProveedorDto } from './dto/actualizar-proveedor.dto';
 import type { RequestUser } from '../auth/strategies/jwt.strategy';
+import {
+  formatearTelefono,
+  normalizarCorreo,
+} from '../../common/validacion/reglas-validacion';
+import { errorDeCampo } from '../../common/errores/respuesta-error';
 
 @Injectable()
 export class InventarioService {
@@ -41,7 +47,8 @@ export class InventarioService {
       where: { id: user.id },
     });
     const email = (user as any).email ?? usuarioAutor?.email ?? null;
-    const nombre = usuarioAutor?.username ?? usuarioAutor?.email ?? 'Administrador';
+    const nombre =
+      usuarioAutor?.username ?? usuarioAutor?.email ?? 'Administrador';
     return {
       autor: { id: user.id, email },
       nombre,
@@ -162,7 +169,9 @@ export class InventarioService {
     });
 
     if (!articulo) {
-      throw new NotFoundException(`El artículo con ID #${id} no fue encontrado`);
+      throw new NotFoundException(
+        `El artículo con ID #${id} no fue encontrado`,
+      );
     }
 
     return {
@@ -203,10 +212,13 @@ export class InventarioService {
 
     if (dto.nombre !== undefined) articulo.nombre = dto.nombre;
     if (dto.descripcion !== undefined) articulo.descripcion = dto.descripcion;
-    if (dto.clasificacion !== undefined) articulo.clasificacion = dto.clasificacion;
-    if (dto.umbralMinimo !== undefined) articulo.umbral_minimo = dto.umbralMinimo;
+    if (dto.clasificacion !== undefined)
+      articulo.clasificacion = dto.clasificacion;
+    if (dto.umbralMinimo !== undefined)
+      articulo.umbral_minimo = dto.umbralMinimo;
     if (dto.ubicacion !== undefined) articulo.ubicacion = dto.ubicacion;
-    if (dto.personaRecibe !== undefined) articulo.persona_recibe = dto.personaRecibe;
+    if (dto.personaRecibe !== undefined)
+      articulo.persona_recibe = dto.personaRecibe;
     if (dto.estado !== undefined) articulo.estado = dto.estado;
     articulo.proveedor = proveedor;
 
@@ -319,7 +331,9 @@ export class InventarioService {
         valor_anterior: String(stockAnterior),
         valor_nuevo: String(articuloActualizado.cantidad_disponible),
         observaciones: `${dto.tipoMovimiento.toUpperCase()}: ${dto.cantidad} uds. Motivo: ${dto.motivo}${
-          dto.responsableDestino ? ` - Destino/Responsable: ${dto.responsableDestino}` : ''
+          dto.responsableDestino
+            ? ` - Destino/Responsable: ${dto.responsableDestino}`
+            : ''
         }`,
       });
 
@@ -488,13 +502,44 @@ export class InventarioService {
     });
   }
 
+  // Evita proveedores repetidos por nombre (sin distinguir mayúsculas) o
+  // por correo. idActual excluye al propio proveedor al editar.
+  private async verificarProveedorNoDuplicado(
+    nombre: string | undefined,
+    correo: string | null | undefined,
+    idActual?: number,
+  ): Promise<void> {
+    if (nombre?.trim()) {
+      const mismoNombre = await this.proveedorRepository
+        .createQueryBuilder('p')
+        .where('LOWER(TRIM(p.nombre)) = :nombre', {
+          nombre: nombre.trim().toLowerCase(),
+        })
+        .getOne();
+      if (mismoNombre && mismoNombre.id !== idActual) {
+        throw new ConflictException(errorDeCampo('nombre', `Ya existe un proveedor registrado con el nombre "${mismoNombre.nombre}".`));
+      }
+    }
+    const correoNormalizado = normalizarCorreo(correo);
+    if (correoNormalizado) {
+      const mismoCorreo = await this.proveedorRepository
+        .createQueryBuilder('p')
+        .where('LOWER(TRIM(p.correo)) = :correo', { correo: correoNormalizado })
+        .getOne();
+      if (mismoCorreo && mismoCorreo.id !== idActual) {
+        throw new ConflictException(errorDeCampo('correo', `Ya existe un proveedor registrado con el correo ${correoNormalizado}.`));
+      }
+    }
+  }
+
   async crearProveedor(dto: CrearProveedorDto): Promise<Proveedor> {
+    await this.verificarProveedorNoDuplicado(dto.nombre, dto.correo);
     const proveedor = this.proveedorRepository.create({
-      nombre: dto.nombre,
+      nombre: dto.nombre.trim(),
       tipo: dto.tipo || 'Jurídico',
       contacto: dto.contacto || null,
-      telefono: dto.telefono || null,
-      correo: dto.correo || null,
+      telefono: formatearTelefono(dto.telefono) || null,
+      correo: normalizarCorreo(dto.correo) || null,
       direccion: dto.direccion || null,
       estado: dto.estado || 'Activo',
     });
@@ -509,7 +554,14 @@ export class InventarioService {
     if (!proveedor) {
       throw new NotFoundException(`El proveedor con ID #${id} no existe`);
     }
+    await this.verificarProveedorNoDuplicado(dto.nombre, dto.correo, id);
     Object.assign(proveedor, dto);
+    if (dto.telefono !== undefined) {
+      proveedor.telefono = formatearTelefono(dto.telefono) || null;
+    }
+    if (dto.correo !== undefined) {
+      proveedor.correo = normalizarCorreo(dto.correo) || null;
+    }
     return this.proveedorRepository.save(proveedor);
   }
 

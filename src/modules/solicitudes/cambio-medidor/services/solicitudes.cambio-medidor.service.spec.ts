@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConflictException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { SolicitudesCambioMedidorService } from './solicitudes.cambio-medidor.service';
 import { CrearSolicitudCambioMedidorDto } from '../dto/crear-solicitud-cambio-medidor.dto';
 
@@ -160,7 +160,7 @@ describe('SolicitudesCambioMedidorService', () => {
     it('no permite una segunda solicitud mientras haya otra abierta', async () => {
       await service.crear(dto, evidenciaFalsa(), abonadoPeticion);
       await expect(service.crear(dto, evidenciaFalsa(), abonadoPeticion)).rejects.toThrow(
-        BadRequestException,
+        ConflictException,
       );
     });
   });
