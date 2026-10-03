@@ -5,12 +5,35 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   ValidateIf,
 } from 'class-validator';
+import { ValidateBy } from 'class-validator';
+import { EsCedula } from '../../../../common/validacion/decoradores-validacion';
+import { esCorreo } from '../../../../common/validacion/reglas-validacion';
+
+// Si el medio de notificación elegido es el correo, el valor debe ser un
+// correo válido (para fax o dirección basta con que no venga vacío).
+function CorreoSiElMedioEsCorreo(campoMedio: string): PropertyDecorator {
+  return ValidateBy({
+    name: 'correoSiElMedioEsCorreo',
+    validator: {
+      validate: (valor: unknown, args) =>
+        (args?.object as Record<string, unknown>)[campoMedio] !== 'correo' ||
+        esCorreo(valor),
+      defaultMessage: () =>
+        'El correo de notificación no tiene un formato válido.',
+    },
+  });
+}
 
 const MEDIOS_NOTIFICACION = ['fax', 'correo', 'direccion'] as const;
-const SERVICIOS = ['agua_potable', 'alcantarillado_sanitario', 'ambos'] as const;
+const SERVICIOS = [
+  'agua_potable',
+  'alcantarillado_sanitario',
+  'ambos',
+] as const;
 const TIPOS_TRAMITE = [
   'nueva_conexion',
   'individualizacion',
@@ -38,7 +61,9 @@ export class CrearSolicitudConexionDto {
   // resuelve automáticamente en el service.
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'El id de la solicitud de paja de agua debe ser un número entero' })
+  @IsInt({
+    message: 'El id de la solicitud de paja de agua debe ser un número entero',
+  })
   @Min(1)
   idSolicitudPajaAgua?: number;
 
@@ -46,8 +71,15 @@ export class CrearSolicitudConexionDto {
   @IsIn(MEDIOS_NOTIFICACION, { message: 'Medio de notificación no válido' })
   medioNotificacionPrincipal: string;
 
-  @IsNotEmpty({ message: 'El valor del medio de notificación principal es obligatorio' })
-  @IsString()
+  @IsNotEmpty({
+    message: 'El valor del medio de notificación principal es obligatorio',
+  })
+  @IsString({ message: 'El valor del medio de notificación debe ser texto.' })
+  @MaxLength(255, {
+    message:
+      'El valor del medio de notificación no puede superar los 255 caracteres.',
+  })
+  @CorreoSiElMedioEsCorreo('medioNotificacionPrincipal')
   valorNotificacionPrincipal: string;
 
   @IsOptional()
@@ -55,7 +87,9 @@ export class CrearSolicitudConexionDto {
   medioNotificacionSecundario?: string;
 
   @ValidateIf((o: CrearSolicitudConexionDto) => !!o.medioNotificacionSecundario)
-  @IsNotEmpty({ message: 'El valor del medio de notificación secundario es obligatorio' })
+  @IsNotEmpty({
+    message: 'El valor del medio de notificación secundario es obligatorio',
+  })
   @IsString()
   valorNotificacionSecundario?: string;
 
@@ -96,11 +130,14 @@ export class CrearSolicitudConexionDto {
   formaPago: string;
 
   @IsNotEmpty({ message: 'El nombre del firmante es obligatorio' })
-  @IsString()
+  @IsString({ message: 'El nombre del firmante debe ser texto.' })
+  @MaxLength(150, {
+    message: 'El nombre del firmante no puede superar los 150 caracteres.',
+  })
   nombreFirmante: string;
 
   @IsNotEmpty({ message: 'La identificación del firmante es obligatoria' })
-  @IsString()
+  @EsCedula()
   identificacionFirmante: string;
 
   // JSON.stringify(AdjuntoMetaDto[]), en el mismo orden que los archivos del

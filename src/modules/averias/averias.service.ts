@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository, SelectQueryBuilder } from 'typeorm';
 import { Averia } from './entities/averia.entity';
@@ -9,8 +13,12 @@ import { FiltroEstadisticasAveriasDto } from './dto/filtro-estadisticas-averias.
 import { Empleado } from '../empleados/entities/empleado.entity';
 import { Abonado } from '../abonados/entities/abonado.entity';
 import { BitacoraService } from '../bitacora/bitacora.service';
-import { ModuloBitacora, AccionBitacora } from '../bitacora/entities/bitacora.enums';
+import {
+  ModuloBitacora,
+  AccionBitacora,
+} from '../bitacora/entities/bitacora.enums';
 import type { RequestUser } from '../auth/strategies/jwt.strategy';
+import { formatearCedula } from '../../common/validacion/reglas-validacion';
 
 export interface EstadisticasAveriasRespuesta {
   total: number;
@@ -40,7 +48,10 @@ export class AveriasService {
       codigo_averia: codigoGenerado,
       tipo_averia: dto.tipo_averia,
       descripcion: dto.descripcion,
-      cedula_reportante: dto.cedula_reportante,
+      // Mismo formato que la cédula del abonado (X-XXXX-XXXX) para que la
+      // avería aparezca en "Mis averías" aunque se escriba sin guiones.
+      cedula_reportante:
+        formatearCedula(dto.cedula_reportante) ?? dto.cedula_reportante,
       nombre_reportante: dto.nombre_reportante,
       apellido1_reportante: dto.apellido1_reportante,
       apellido2_reportante: dto.apellido2_reportante,
@@ -66,7 +77,7 @@ export class AveriasService {
       relations: { empleado: true },
       order: { fecha_reporte: 'DESC' },
     });
- 
+
     // El historial ya no es una relación de TypeORM: se arma desde la
     // bitácora, pero se adjunta con el mismo nombre para que el frontend
     // no cambie.
@@ -74,7 +85,7 @@ export class AveriasService {
       (averia as unknown as Record<string, unknown>).historial =
         await this.armarHistorial(averia.id);
     }
- 
+
     return averias;
   }
 
@@ -144,22 +155,28 @@ export class AveriasService {
         `La avería con el ID ${id} no fue encontrada`,
       );
     }
- 
+
     (averia as unknown as Record<string, unknown>).historial =
       await this.armarHistorial(averia.id);
- 
+
     return averia;
   }
 
-  async actualizar(id: number, dto: UpdateAveriaDto): Promise<Averia> {
+  async actualizar(
+    id: number,
+    dto: UpdateAveriaDto,
+    usuarioId?: number,
+  ): Promise<Averia> {
     const averia = await this.findOne(id);
+    // El autor del movimiento sale del token, no de lo que mande el cliente.
+    const autor = { id: usuarioId ?? null, email: dto.realizado_por || 'Sistema' };
 
     if (dto.empleado_id) {
       const empleado = await this.empleadoRepository.findOneBy({
         id: dto.empleado_id,
       });
       if (!empleado) {
-        throw new BadRequestException(
+        throw new NotFoundException(
           `No se encontró un empleado con el ID ${dto.empleado_id}`,
         );
       }
@@ -176,7 +193,7 @@ export class AveriasService {
         modulo: ModuloBitacora.AVERIAS,
         registro_id: id,
         accion: AccionBitacora.EDICION,
-        autor: { id: null, email: dto.realizado_por || 'Sistema' },
+        autor,
         campo: 'empleado',
         valor_anterior: null,
         valor_nuevo: nombreEmp,
@@ -198,7 +215,9 @@ export class AveriasService {
         const tieneFontanero = dto.empleado_id || averia.empleado;
         if (!tieneFontanero) {
           throw new BadRequestException(
-            'No se puede cambiar el estado a "' + dto.estado + '" sin antes asignar un fontanero a la avería.',
+            'No se puede cambiar el estado a "' +
+              dto.estado +
+              '" sin antes asignar un fontanero a la avería.',
           );
         }
       }
@@ -206,11 +225,10 @@ export class AveriasService {
       await this.bitacoraService.registrarCambioEstado(
         ModuloBitacora.AVERIAS,
         id,
-        { id: null, email: dto.realizado_por || 'Sistema' },
+        autor,
         averia.estado,
         dto.estado,
-        dto.observacion ||
-          `Estado cambiado: ${averia.estado} → ${dto.estado}`,
+        dto.observacion || `Estado cambiado: ${averia.estado} → ${dto.estado}`,
       );
       averia.estado = dto.estado;
     }
@@ -229,12 +247,12 @@ export class AveriasService {
       ModuloBitacora.AVERIAS,
       averiaId,
     );
- 
+
     const viejos = await this.historialRepository.find({
       where: { averia_id: averiaId },
       order: { fecha: 'DESC' },
     });
- 
+
     return [
       ...nuevos.map((b) => ({
         id: b.id,
@@ -341,10 +359,14 @@ export class AveriasService {
       query.andWhere('averia.fecha_reporte <= :fin', { fin });
     }
     if (filtros.tipo?.trim() && filtros.tipo.trim() !== 'Todos') {
-      query.andWhere('averia.tipo_averia = :tipo', { tipo: filtros.tipo.trim() });
+      query.andWhere('averia.tipo_averia = :tipo', {
+        tipo: filtros.tipo.trim(),
+      });
     }
     if (filtros.estado?.trim() && filtros.estado.trim() !== 'Todos') {
-      query.andWhere('averia.estado = :estado', { estado: filtros.estado.trim() });
+      query.andWhere('averia.estado = :estado', {
+        estado: filtros.estado.trim(),
+      });
     }
   }
 }

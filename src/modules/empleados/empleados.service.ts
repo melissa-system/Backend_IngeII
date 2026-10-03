@@ -15,6 +15,10 @@ import {
   ModuloBitacora,
   AccionBitacora,
 } from '../bitacora/entities/bitacora.enums';
+import {
+  formatearCedula,
+  formatearTelefono,
+} from '../../common/validacion/reglas-validacion';
 
 export interface EmpleadoPlano {
   id: number;
@@ -116,6 +120,11 @@ export class EmpleadosService {
     },
     autorId?: number,
   ): Promise<EmpleadoPlano> {
+    // Misma cédula con o sin guiones = misma persona.
+    datos.cedula = formatearCedula(datos.cedula) ?? datos.cedula;
+    if (datos.telefono)
+      datos.telefono = formatearTelefono(datos.telefono) ?? datos.telefono;
+
     const cedulaExistente = await this.empleadoRepository.findOne({
       where: { cedula: datos.cedula },
     });
@@ -194,7 +203,9 @@ export class EmpleadosService {
   }
 
   /** Busca un usuario registrado por su correo (para asociarlo a un empleado). */
-  async buscarUsuarioPorEmail(email: string): Promise<{ id: number; email: string } | null> {
+  async buscarUsuarioPorEmail(
+    email: string,
+  ): Promise<{ id: number; email: string } | null> {
     const correo = email.trim().toLowerCase();
     const usuario = await this.userRepository.findOne({
       where: { email: correo },
@@ -271,6 +282,11 @@ export class EmpleadosService {
     const antes = { ...empleado } as Record<string, unknown>;
     const correoCuentaAntes = empleado.usuario?.email ?? null;
 
+    if (datos.cedula)
+      datos.cedula = formatearCedula(datos.cedula) ?? datos.cedula;
+    if (datos.telefono)
+      datos.telefono = formatearTelefono(datos.telefono) ?? datos.telefono;
+
     if (datos.cedula && datos.cedula !== empleado.cedula) {
       const duplicado = await this.empleadoRepository.findOne({
         where: { cedula: datos.cedula },
@@ -317,7 +333,8 @@ export class EmpleadosService {
     if (datos.correo !== undefined) {
       empleado.correo = datos.correo?.trim().toLowerCase() ?? null;
     }
-    if (datos.fecha_ingreso !== undefined) empleado.fecha_ingreso = datos.fecha_ingreso;
+    if (datos.fecha_ingreso !== undefined)
+      empleado.fecha_ingreso = datos.fecha_ingreso;
 
     const guardado = await this.empleadoRepository.save(empleado);
 

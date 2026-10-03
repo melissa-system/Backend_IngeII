@@ -30,7 +30,10 @@ export class CrearReporteFontaneroDto {
   })
   descripcion: string;
 
-  @IsDateString({}, { message: 'La fecha del trabajo debe tener formato YYYY-MM-DD' })
+  @IsDateString(
+    {},
+    { message: 'La fecha del trabajo debe tener formato YYYY-MM-DD' },
+  )
   fechaTrabajo: string;
 
   @Type(() => Number)
@@ -45,7 +48,8 @@ export class CrearReporteFontaneroDto {
   // una avería reportada.
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
+  @IsInt({ message: 'La avería seleccionada no es válida' })
+  @Min(1, { message: 'La avería seleccionada no es válida' })
   averiaId?: number;
 
   // Materiales utilizados, en texto libre. Opcional: no todo trabajo consume

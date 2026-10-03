@@ -22,6 +22,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/roles.enum';
 import type { RequestUser } from '../auth/strategies/jwt.strategy';
+import { CambiarEstadoArticuloDto } from './dto/cambiar-estado-articulo.dto';
 
 @Controller(['api/articulos', 'articulos'])
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -93,8 +94,8 @@ export class InventarioController {
   async cambiarEstado(
     @Param('id', ParseIntPipe) id: number,
     @Request() req: { user: RequestUser },
-    @Body('estado') nuevoEstado?: 'activo' | 'inactivo',
+    @Body() body: CambiarEstadoArticuloDto,
   ) {
-    return this.inventarioService.cambiarEstado(id, req.user, nuevoEstado);
+    return this.inventarioService.cambiarEstado(id, req.user, body.estado);
   }
 }
