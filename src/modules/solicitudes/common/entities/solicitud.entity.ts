@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { Abonado } from '../../../abonados/entities/abonado.entity';
 import { Empleado } from '../../../empleados/entities/empleado.entity';
@@ -17,6 +18,10 @@ import { Empleado } from '../../../empleados/entities/empleado.entity';
 // Así el frontend puede listar "todas las solicitudes" en el panel y cada
 // sub-sección del menú filtra por tipo_solicitud.
 @Entity('solicitudes')
+@Index(['tipo_solicitud'])
+@Index(['estado'])
+@Index(['tipo_solicitud', 'estado'])
+@Index(['tipo_solicitud', 'fecha_creacion'])
 export class Solicitud {
   @PrimaryGeneratedColumn()
   id: number;

@@ -6,11 +6,16 @@ import {
   ManyToOne,
   OneToMany,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { Empleado } from '../../empleados/entities/empleado.entity';
 import { HistorialAveria } from './historial-averia.entity';
 
 @Entity('averias')
+@Index(['estado'])
+@Index(['tipo_averia'])
+@Index(['fecha_reporte'])
+@Index(['cedula_reportante'])
 export class Averia {
   @PrimaryGeneratedColumn()
   id: number;

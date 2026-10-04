@@ -2,16 +2,42 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
-// Envío de correos del módulo auth. Si otro módulo necesita enviar correos
-// más adelante, este servicio se puede mover a common/ y exportarse desde ahí.
+/**
+ * Opciones de botón de llamada a la acción (CTA) para las plantillas de correo.
+ */
+export interface BotonAccion {
+  texto: string;
+  url: string;
+}
+
+/**
+ * Opciones para la construcción del layout base de correos.
+ */
+export interface PlantillaOpciones {
+  titulo: string;
+  cuerpoHtml: string;
+  boton?: BotonAccion;
+  avisoPie?: string;
+}
+
+/**
+ * Servicio centralizado para el diseño, composición y envío de correos electrónicos
+ * de la ASADA Pueblo Nuevo (PBI 518 - Tasks 520 y 521).
+ *
+ * Emplea un layout unificado responsivo, accesible y optimizado para clientes de
+ * correo modernos y tradicionales (Gmail, Outlook, Apple Mail, clientes móviles).
+ */
 @Injectable()
 export class MailService {
   private readonly transporter: nodemailer.Transporter;
 
-  // Mismo azul de marca que el sidebar/header del dashboard
-  // (--color-primary-700 en Frontend_IngeII/src/index.css), para que el
-  // correo se sienta parte del mismo sistema y no un template genérico.
-  private static readonly COLOR_MARCA = '#073763';
+  // Paleta de colores institucional unificada con la marca del sistema
+  private static readonly COLOR_PRIMARIO = '#073763'; // Azul marino ASADA (--color-primary-700)
+  private static readonly COLOR_BOTON = '#073763'; // Azul institucional de acción
+  private static readonly COLOR_FONDO = '#f4f6f8'; // Fondo neutro suave
+  private static readonly COLOR_TARJETA = '#ffffff'; // Tarjeta central blanca
+  private static readonly COLOR_TEXTO = '#1f2937'; // Gris oscuro para lectura óptima
+  private static readonly COLOR_MUTED = '#6b7280'; // Texto secundario / footer
 
   constructor(private readonly configService: ConfigService) {
     this.transporter = nodemailer.createTransport({
@@ -25,10 +51,40 @@ export class MailService {
     });
   }
 
-  // Misma lógica que AuthService.urlFrontendPublica(): FRONTEND_URL puede
-  // traer varias URLs separadas por coma (soporte CORS multi-origen), así
-  // que un link de correo usa PUBLIC_APP_URL si está definida, y si no, la
-  // primera de FRONTEND_URL.
+  /**
+   * Obtiene el nombre institucional configurado o el predeterminado.
+   */
+  private get nombreAsada(): string {
+    return (
+      this.configService.get<string>('ASADA_NOMBRE') ?? 'ASADA Pueblo Nuevo'
+    );
+  }
+
+  /**
+   * Obtiene el subtítulo institucional para el encabezado del correo.
+   */
+  private get subtituloAsada(): string {
+    return (
+      this.configService.get<string>('ASADA_SUBTITULO') ??
+      'Sistema de Información y Administración de Acueductos'
+    );
+  }
+
+  /**
+   * Obtiene los datos de contacto institucionales para el footer.
+   */
+  private get datosContactoFooter(): string {
+    const telefono =
+      this.configService.get<string>('ASADA_TELEFONO') ?? '(506) 2685-0000';
+    const correo =
+      this.configService.get<string>('ASADA_EMAIL_CONTACTO') ??
+      'info@asada.local';
+    return `${this.nombreAsada} • Tel: ${telefono} • ${correo}`;
+  }
+
+  /**
+   * Obtiene la URL pública del frontend respetando CORS y variables de entorno.
+   */
   private urlFrontendPublica(): string {
     const publica = this.configService.get<string>('PUBLIC_APP_URL');
     if (publica?.trim()) return publica.trim();
@@ -39,159 +95,338 @@ export class MailService {
     return frontendUrl.split(',')[0].trim();
   }
 
-  // Arma el HTML común a todos los correos (encabezado con el nombre de la
-  // ASADA, tarjeta blanca centrada, botón de acción centrado y pie con
-  // aviso legal) para que no queden inconsistentes entre sí. Usa tablas y
-  // estilos inline a propósito: es lo único que Gmail/Outlook/Apple Mail
-  // renderizan de forma confiable, un <link>/<style> externo no sirve acá.
-  private plantillaBase(datos: {
-    tituloEncabezado?: string;
-    saludo: string;
-    parrafos: string[];
-    boton?: { texto: string; url: string };
-    notaFinal?: string;
-  }): string {
-    const color = MailService.COLOR_MARCA;
-    const año = new Date().getFullYear();
+  /**
+   * Sanitiza cadenas de texto dinámicas para prevenir inyecciones HTML en plantillas.
+   */
+  private escapeHtml(texto?: string | null): string {
+    if (!texto) return '';
+    return texto
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
 
-    const parrafosHtml = datos.parrafos
+  /**
+   * Helper para renderizar un badge estilizado de estado (Aprobado / Rechazado).
+   */
+  private renderBadgeEstado(estado: string): string {
+    const normalizado = estado.trim().toLowerCase();
+    const esAprobado = normalizado === 'aprobado' || normalizado === 'aprobada';
+
+    const bg = esAprobado ? '#dcfce7' : '#fee2e2';
+    const text = esAprobado ? '#166534' : '#991b1b';
+    const border = esAprobado ? '#bbf7d0' : '#fecaca';
+    const label = esAprobado ? 'APROBADA' : 'RECHAZADA';
+
+    return `
+      <span style="display:inline-block;padding:4px 12px;border-radius:9999px;font-size:12px;font-weight:700;letter-spacing:0.5px;background-color:${bg};color:${text};border:1px solid ${border};text-transform:uppercase;">
+        ${label}
+      </span>
+    `;
+  }
+
+  /**
+   * Helper para renderizar una ficha o resumen de detalles con pares clave-valor.
+   */
+  private renderFichaDetalles(
+    detalles: Array<{ etiqueta: string; valor: string }>,
+  ): string {
+    const filas = detalles
       .map(
-        (p) =>
-          `<p style="margin:0 0 16px;color:#374151;font-size:15px;line-height:1.6;">${p}</p>`,
+        (d, idx) => `
+        <tr style="border-bottom:${idx === detalles.length - 1 ? 'none' : '1px solid #e5e7eb'};">
+          <td style="padding:10px 14px;font-size:13px;font-weight:600;color:#4b5563;width:35%;vertical-align:middle;background-color:#f9fafb;">
+            ${d.etiqueta}
+          </td>
+          <td style="padding:10px 14px;font-size:14px;color:#111827;vertical-align:middle;">
+            ${d.valor}
+          </td>
+        </tr>`,
       )
       .join('');
 
-    const botonHtml = datos.boton
+    return `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0;background-color:#ffffff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;border-collapse:collapse;">
+        ${filas}
+      </table>
+    `;
+  }
+
+  /**
+   * Helper para renderizar una caja de alerta o nota destacada.
+   */
+  private renderCajaAlerta(
+    contenido: string,
+    tipo: 'info' | 'warning' | 'danger' = 'info',
+  ): string {
+    const config = {
+      info: { bg: '#eff6ff', border: '#3b82f6', text: '#1e40af', title: 'Información' },
+      warning: { bg: '#fffbeb', border: '#f59e0b', text: '#92400e', title: 'Importante' },
+      danger: { bg: '#fef2f2', border: '#ef4444', text: '#991b1b', title: 'Motivo del Rechazo' },
+    }[tipo];
+
+    return `
+      <div style="margin:20px 0;padding:14px 16px;background-color:${config.bg};border-left:4px solid ${config.border};border-radius:6px;">
+        <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:${config.text};">${config.title}:</p>
+        <p style="margin:0;font-size:14px;line-height:1.5;color:${config.text};">${contenido}</p>
+      </div>
+    `;
+  }
+
+  /**
+   * Task 520: Genera el layout base HTML unificado institucional.
+   *
+   * Diseñado mediante tablas HTML puras y estilos inline para máxima compatibilidad con
+   * Gmail, Outlook desktop/web, iOS Mail, Android y clientes web. Ancho máximo: 600px.
+   */
+  public plantillaBase(opciones: PlantillaOpciones): string {
+    const colorPrimario = MailService.COLOR_PRIMARIO;
+    const colorBoton = MailService.COLOR_BOTON;
+    const colorFondo = MailService.COLOR_FONDO;
+    const colorTarjeta = MailService.COLOR_TARJETA;
+    const colorTexto = MailService.COLOR_TEXTO;
+    const colorMuted = MailService.COLOR_MUTED;
+    const añoActual = new Date().getFullYear();
+
+    const logoUrl = this.configService.get<string>('ASADA_LOGO_URL');
+
+    // Botón de llamada a la acción (CTA) opcional
+    const botonHtml = opciones.boton
       ? `
-        <table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" style="margin:8px auto 24px;">
+      <table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" style="margin:28px auto 20px;">
+        <tr>
+          <td align="center" bgcolor="${colorBoton}" style="border-radius:8px;box-shadow:0 2px 4px rgba(7,55,99,0.2);">
+            <a href="${opciones.boton.url}" target="_blank" style="display:inline-block;padding:14px 36px;color:#ffffff;font-size:15px;font-weight:bold;text-decoration:none;border-radius:8px;font-family:Arial, Helvetica, sans-serif;letter-spacing:0.3px;">
+              ${this.escapeHtml(opciones.boton.texto)}
+            </a>
+          </td>
+        </tr>
+      </table>`
+      : '';
+
+    // Aviso al pie opcional dentro de la tarjeta
+    const avisoPieHtml = opciones.avisoPie
+      ? `
+      <div style="margin-top:24px;padding-top:16px;border-top:1px dashed #e5e7eb;">
+        <p style="margin:0;color:${colorMuted};font-size:12px;line-height:1.5;font-style:italic;">
+          ${opciones.avisoPie}
+        </p>
+      </div>`
+      : '';
+
+    // Encabezado con soporte para logo institucional o tipografía destacada
+    const headerContent = logoUrl
+      ? `
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
           <tr>
-            <td align="center" bgcolor="${color}" style="border-radius:8px;">
-              <a href="${datos.boton.url}" target="_blank" style="display:inline-block;padding:14px 36px;color:#ffffff;font-size:15px;font-weight:bold;text-decoration:none;border-radius:8px;font-family:Arial, Helvetica, sans-serif;">${datos.boton.texto}</a>
+            <td align="center" style="padding-bottom:10px;">
+              <img src="${logoUrl}" alt="${this.escapeHtml(this.nombreAsada)}" width="140" style="display:block;max-width:140px;height:auto;border:0;" />
+            </td>
+          </tr>
+          <tr>
+            <td align="center">
+              <h1 style="margin:0;color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:0.5px;font-family:Arial, Helvetica, sans-serif;">${this.escapeHtml(this.nombreAsada)}</h1>
+              <p style="margin:4px 0 0;color:#d0e1f3;font-size:12px;font-family:Arial, Helvetica, sans-serif;">${this.escapeHtml(this.subtituloAsada)}</p>
             </td>
           </tr>
         </table>`
-      : '';
+      : `
+        <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;letter-spacing:0.5px;font-family:Arial, Helvetica, sans-serif;">${this.escapeHtml(this.nombreAsada)}</h1>
+        <p style="margin:6px 0 0;color:#d0e1f3;font-size:12px;font-family:Arial, Helvetica, sans-serif;">${this.escapeHtml(this.subtituloAsada)}</p>
+      `;
 
-    return `
-<!DOCTYPE html>
-<html lang="es">
-  <body style="margin:0;padding:0;background-color:#f3f4f6;font-family:Arial, Helvetica, sans-serif;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f3f4f6;padding:32px 16px;">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
-            <tr>
-              <td style="background-color:${color};padding:28px 32px;text-align:center;">
-                <p style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;letter-spacing:0.5px;font-family:Arial, Helvetica, sans-serif;">ASADA Pueblo Nuevo</p>
-                <p style="margin:6px 0 0;color:#cfe0f0;font-size:12px;font-family:Arial, Helvetica, sans-serif;">${
-                  datos.tituloEncabezado ?? 'Sistema de Información de Abonados'
-                }</p>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:32px;">
-                <p style="margin:0 0 16px;color:#111827;font-size:15px;line-height:1.6;">${datos.saludo}</p>
-                ${parrafosHtml}
-                ${botonHtml}
-                ${
-                  datos.notaFinal
-                    ? `<p style="margin:24px 0 0;color:#9ca3af;font-size:12px;line-height:1.5;">${datos.notaFinal}</p>`
-                    : ''
-                }
-              </td>
-            </tr>
-            <tr>
-              <td style="background-color:#f9fafb;padding:16px 32px;text-align:center;border-top:1px solid #e5e7eb;">
-                <p style="margin:0;color:#9ca3af;font-size:11px;font-family:Arial, Helvetica, sans-serif;">© ${año} ASADA Pueblo Nuevo. Todos los derechos reservados.</p>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
+    return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="es">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <title>${this.escapeHtml(opciones.titulo)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:${colorFondo};font-family:Arial, Helvetica, sans-serif;-webkit-font-smoothing:antialiased;-ms-text-size-adjust:100%;-webkit-text-size-adjust:100%;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${colorFondo};padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <!-- Tarjeta Central Principal (Máx 600px) -->
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background-color:${colorTarjeta};border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);">
+          <!-- Header Banner Institucional -->
+          <tr>
+            <td style="background-color:${colorPrimario};padding:28px 32px;text-align:center;">
+              ${headerContent}
+            </td>
+          </tr>
+
+          <!-- Título Destacado del Correo -->
+          <tr>
+            <td style="padding:28px 32px 0 32px;background-color:${colorTarjeta};">
+              <h2 style="margin:0;color:${colorTexto};font-size:20px;font-weight:bold;line-height:1.4;font-family:Arial, Helvetica, sans-serif;">
+                ${this.escapeHtml(opciones.titulo)}
+              </h2>
+              <div style="height:3px;width:40px;background-color:${colorPrimario};margin:10px 0 0 0;border-radius:2px;"></div>
+            </td>
+          </tr>
+
+          <!-- Cuerpo Dinámico -->
+          <tr>
+            <td style="padding:20px 32px 28px 32px;background-color:${colorTarjeta};">
+              <div style="color:${colorTexto};font-size:15px;line-height:1.6;font-family:Arial, Helvetica, sans-serif;">
+                ${opciones.cuerpoHtml}
+              </div>
+              ${botonHtml}
+              ${avisoPieHtml}
+            </td>
+          </tr>
+
+          <!-- Pie de Página Institucional -->
+          <tr>
+            <td style="background-color:#f9fafb;padding:24px 32px;text-align:center;border-top:1px solid #e5e7eb;">
+              <p style="margin:0 0 6px;color:#4b5563;font-size:12px;font-weight:600;font-family:Arial, Helvetica, sans-serif;">
+                ${this.escapeHtml(this.datosContactoFooter)}
+              </p>
+              <p style="margin:0 0 10px;color:${colorMuted};font-size:11px;font-family:Arial, Helvetica, sans-serif;">
+                Este es un correo generado automáticamente por el sistema institucional. Por favor no responda a este mensaje.
+              </p>
+              <p style="margin:0;color:#9ca3af;font-size:11px;font-family:Arial, Helvetica, sans-serif;">
+                &copy; ${añoActual} ${this.escapeHtml(this.nombreAsada)}. Todos los derechos reservados.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
 </html>`;
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Task 521: Migración Unificada de los 8 Métodos Existentes
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * 1. Recuperación de contraseña:
+   * Explica la solicitud de restablecimiento, indica vigencia limitada y provee el CTA.
+   */
   async enviarCorreoResetPassword(
     destinatario: string,
     url: string,
   ): Promise<void> {
+    const titulo = 'Recuperación de Contraseña';
+    const cuerpoHtml = `
+      <p style="margin:0 0 16px;">Estimado(a) usuario(a),</p>
+      <p style="margin:0 0 16px;">
+        Hemos recibido una solicitud para restablecer la contraseña de acceso a su cuenta en el
+        <strong>${this.escapeHtml(this.subtituloAsada)}</strong> de la ${this.escapeHtml(this.nombreAsada)}.
+      </p>
+      <p style="margin:0 0 16px;">
+        Para crear una nueva contraseña y recuperar el acceso a su cuenta, haga clic en el siguiente botón:
+      </p>
+      ${this.renderCajaAlerta(
+        'Por su seguridad, este enlace tiene una validez temporal y expirará pronto.',
+        'warning',
+      )}
+    `;
+
     await this.transporter.sendMail({
       from:
         this.configService.get<string>('EMAIL_FROM') ??
         'no-reply@asada.local',
       to: destinatario,
-      subject: 'ASADA Pueblo Nuevo — Recuperación de contraseña',
+      subject: `${this.nombreAsada} — Recuperación de Contraseña`,
       html: this.plantillaBase({
-        tituloEncabezado: 'Recuperación de contraseña',
-        saludo: 'Hola,',
-        parrafos: [
-          'Recibimos una solicitud para restablecer la contraseña de tu cuenta en el Sistema de Información de Abonados (SIAPB).',
-          'Hacé clic en el siguiente botón para crear una nueva contraseña. Por tu seguridad, este enlace vence en poco tiempo.',
-        ],
+        titulo,
+        cuerpoHtml,
         boton: { texto: 'Restablecer mi contraseña', url },
-        notaFinal:
-          'Si no solicitaste este cambio, podés ignorar este correo: tu contraseña actual seguirá funcionando sin problema.',
+        avisoPie:
+          'Si usted no solicitó este cambio de contraseña, ignore este mensaje. Su contraseña actual continuará funcionando de forma segura.',
       }),
     });
   }
 
+  /**
+   * 2. Activación de cuenta:
+   * Notifica el auto-registro exitoso e instruye activar la cuenta mediante el enlace.
+   */
   async enviarCorreoBienvenida(
     destinatario: string,
     url: string,
   ): Promise<void> {
+    const titulo = 'Activación de Cuenta - ASADA';
+    const cuerpoHtml = `
+      <p style="margin:0 0 16px;">¡Le damos una cordial bienvenida!</p>
+      <p style="margin:0 0 16px;">
+        Agradecemos su registro en la plataforma digital de la <strong>${this.escapeHtml(
+          this.nombreAsada,
+        )}</strong>.
+      </p>
+      <p style="margin:0 0 16px;">
+        Para completar la verificación de su dirección de correo electrónico y activar su cuenta en el sistema, por favor pulse el siguiente botón:
+      </p>
+      ${this.renderCajaAlerta(
+        'Una vez activada la cuenta, podrá ingresar a su panel de abonado y gestionar trámites, averías y consultas en línea.',
+        'info',
+      )}
+    `;
+
     await this.transporter.sendMail({
       from:
         this.configService.get<string>('EMAIL_FROM') ??
         'no-reply@asada.local',
       to: destinatario,
-      subject: 'ASADA Pueblo Nuevo — Bienvenido, activa tu cuenta',
+      subject: `${this.nombreAsada} — Bienvenido(a), activa tu cuenta`,
       html: this.plantillaBase({
-        tituloEncabezado: 'Activación de cuenta',
-        saludo: '¡Hola!',
-        parrafos: [
-          'Gracias por registrarte en el Sistema de Información de Abonados (SIAPB) de la ASADA Pueblo Nuevo.',
-          'Para activar tu cuenta y empezar a usarla, hacé clic en el siguiente botón:',
-        ],
+        titulo,
+        cuerpoHtml,
         boton: { texto: 'Activar mi cuenta', url },
-        notaFinal:
-          'Si no creaste esta cuenta, podés ignorar este correo sin problema.',
+        avisoPie:
+          'Si usted no realizó esta solicitud de registro, puede desestimar este mensaje sin inconveniente.',
       }),
     });
   }
 
-  // Correo que recibe un Abonado recién registrado por un administrador:
-  // reutiliza el mismo mecanismo (y la misma pantalla /restablecer-password)
-  // que "recuperar contraseña", ya que el sistema no distingue entre poner
-  // una contraseña por primera vez o cambiar una que ya existía.
+  /**
+   * 3. Acceso de abonado creado por administración:
+   * Notifica el alta administrativa de la cuenta y solicita definir la contraseña inicial.
+   */
   async enviarCorreoAccesoAbonado(
     destinatario: string,
     url: string,
   ): Promise<void> {
+    const titulo = 'Acceso al Sistema de Abonados';
+    const cuerpoHtml = `
+      <p style="margin:0 0 16px;">Estimado(a) abonado(a),</p>
+      <p style="margin:0 0 16px;">
+        Le informamos que el personal administrativo de la <strong>${this.escapeHtml(
+          this.nombreAsada,
+        )}</strong> ha registrado y habilitado satisfactoriamente su cuenta de acceso en el sistema institucional.
+      </p>
+      <p style="margin:0 0 16px;">
+        Para ingresar por primera vez a su portal, es necesario que configure su clave de acceso personal haciendo clic en el siguiente enlace:
+      </p>
+    `;
+
     await this.transporter.sendMail({
       from:
         this.configService.get<string>('EMAIL_FROM') ??
         'no-reply@asada.local',
       to: destinatario,
-      subject: 'ASADA Pueblo Nuevo — Accede a tu cuenta',
+      subject: `${this.nombreAsada} — Acceso al Sistema de Abonados`,
       html: this.plantillaBase({
-        tituloEncabezado: 'Acceso a tu cuenta',
-        saludo: 'Hola,',
-        parrafos: [
-          'Se registró una cuenta a tu nombre en el Sistema de Información de Abonados (SIAPB) de la ASADA Pueblo Nuevo.',
-          'Para ingresar por primera vez, primero tenés que crear tu contraseña haciendo clic en el siguiente botón:',
-        ],
-        boton: { texto: 'Crear mi contraseña', url },
-        notaFinal:
-          'Si no reconocés esta cuenta, podés ignorar este correo sin problema.',
+        titulo,
+        cuerpoHtml,
+        boton: { texto: 'Establecer Contraseña', url },
+        avisoPie:
+          'Por motivos de seguridad, nunca comparta su enlace ni su contraseña con terceras personas.',
       }),
     });
   }
 
-  // Notificación del resultado de una solicitud gestionada en el dashboard
-  // (hoy: cambio de domicilio): informa si fue aprobada o rechazada y, en
-  // caso de rechazo, incluye el motivo indicado por el administrador.
+  /**
+   * 4. Resultado de solicitud (cambio de medidor y conexión de paja de agua):
+   * Muestra ficha destacada con código, tipo, badge de estado y motivo si fue rechazada.
+   */
   async enviarCorreoResultadoSolicitud(
     destinatario: string,
     datos: {
@@ -202,36 +437,60 @@ export class MailService {
     },
   ): Promise<void> {
     const esAprobada = datos.estadoResultado === 'aprobado';
+    const titulo = 'Resolución de Solicitud de Trámite';
+
+    const detalles = [
+      { etiqueta: 'Código de Trámite', valor: `<strong>${this.escapeHtml(datos.codigo)}</strong>` },
+      { etiqueta: 'Tipo de Solicitud', valor: this.escapeHtml(datos.tipo) },
+      { etiqueta: 'Estado de Resolución', valor: this.renderBadgeEstado(datos.estadoResultado) },
+    ];
+
+    const mensajeResolucion = esAprobada
+      ? `<p style="margin:0 0 16px;color:#166534;font-weight:600;">
+          Su solicitud ha sido aprobada favorablemente. Los cambios correspondientes han sido actualizados en los registros de su servicio.
+        </p>`
+      : `<p style="margin:0 0 16px;color:#991b1b;font-weight:600;">
+          Su solicitud ha sido revisada y denegada por la administración.
+        </p>
+        ${
+          datos.motivo
+            ? this.renderCajaAlerta(this.escapeHtml(datos.motivo), 'danger')
+            : this.renderCajaAlerta(
+                'Para más información sobre los motivos del rechazo, le invitamos a contactar al personal de atención en la oficina de la ASADA.',
+                'info',
+              )
+        }`;
+
+    const cuerpoHtml = `
+      <p style="margin:0 0 16px;">Estimado(a) abonado(a),</p>
+      <p style="margin:0 0 16px;">
+        Le notificamos el dictamen oficial emitido respecto a su gestión de trámite:
+      </p>
+      ${this.renderFichaDetalles(detalles)}
+      ${mensajeResolucion}
+    `;
+
     await this.transporter.sendMail({
       from:
         this.configService.get<string>('EMAIL_FROM') ??
         'no-reply@asada.local',
       to: destinatario,
       subject: esAprobada
-        ? `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} aprobada`
-        : `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} rechazada`,
+        ? `${this.nombreAsada} — Solicitud ${datos.codigo} aprobada`
+        : `${this.nombreAsada} — Solicitud ${datos.codigo} rechazada`,
       html: this.plantillaBase({
-        tituloEncabezado: 'Resultado de tu solicitud',
-        saludo: 'Hola,',
-        parrafos: [
-          `Tu solicitud de <strong>${datos.tipo}</strong> con código <strong>${datos.codigo}</strong> fue <strong>${
-            esAprobada ? 'aprobada' : 'rechazada'
-          }</strong>.`,
-          esAprobada
-            ? 'Ya podés ver los cambios actualizados en tu perfil de abonado.'
-            : datos.motivo
-              ? `Motivo del rechazo: ${datos.motivo}`
-              : 'Si tenés dudas, contactanos en las oficinas de la ASADA.',
-        ],
-        notaFinal: 'Gracias por usar el Sistema de Información de Abonados (SIAPB).',
+        titulo,
+        cuerpoHtml,
+        avisoPie:
+          'Puede consultar el historial y constancias de todas sus solicitudes ingresando a su portal de abonado.',
       }),
     });
   }
 
-  // Notificación del resultado de una solicitud de trámite "otro". Como este
-  // tipo no actualiza nada del abonado, además del resultado se incluye el
-  // comentario que dejó el administrador al resolver (obligatorio al aprobar
-  // o rechazar): es la única constancia de qué se hizo.
+  /**
+   * 5. Resultado de solicitud de trámite general ("otro"):
+   * Incluye ficha con código, asunto, estado y comentarios emitidos por el administrador.
+   */
   async enviarCorreoResultadoOtro(
     destinatario: string,
     datos: {
@@ -242,37 +501,49 @@ export class MailService {
     },
   ): Promise<void> {
     const esAprobada = datos.estadoResultado === 'aprobado';
+    const titulo = 'Resolución de Solicitud General';
+
+    const detalles = [
+      { etiqueta: 'Código de Solicitud', valor: `<strong>${this.escapeHtml(datos.codigo)}</strong>` },
+      { etiqueta: 'Asunto de la Gestión', valor: this.escapeHtml(datos.asunto) },
+      { etiqueta: 'Estado de Resolución', valor: this.renderBadgeEstado(datos.estadoResultado) },
+    ];
+
+    const comentarioHtml = datos.comentario
+      ? this.renderCajaAlerta(this.escapeHtml(datos.comentario), esAprobada ? 'info' : 'danger')
+      : '<p style="margin:0 0 16px;color:#6b7280;font-style:italic;">No se registraron observaciones adicionales por parte de la administración.</p>';
+
+    const cuerpoHtml = `
+      <p style="margin:0 0 16px;">Estimado(a) abonado(a),</p>
+      <p style="margin:0 0 16px;">
+        Le comunicamos que su solicitud general ha sido atendida y resuelta formalmente por la administración de la ASADA:
+      </p>
+      ${this.renderFichaDetalles(detalles)}
+      <p style="margin:0 0 8px;font-weight:600;color:#374151;">Dictamen y comentarios de la administración:</p>
+      ${comentarioHtml}
+    `;
+
     await this.transporter.sendMail({
       from:
         this.configService.get<string>('EMAIL_FROM') ??
         'no-reply@asada.local',
       to: destinatario,
-      subject: `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} ${
+      subject: `${this.nombreAsada} — Solicitud ${datos.codigo} ${
         esAprobada ? 'aprobada' : 'rechazada'
       }`,
       html: this.plantillaBase({
-        tituloEncabezado: 'Resultado de tu solicitud',
-        saludo: 'Hola,',
-        parrafos: [
-          `Tu solicitud <strong>${datos.asunto}</strong> con código <strong>${datos.codigo}</strong> fue <strong>${
-            esAprobada ? 'aprobada' : 'rechazada'
-          }</strong>.`,
-          esAprobada
-            ? 'Tu trámite quedó resuelto. El comentario del administrador es el siguiente:'
-            : 'Motivo indicado por el administrador:',
-          datos.comentario
-            ? `<em style="color:#374151;">${datos.comentario}</em>`
-            : 'No se registró un comentario.',
-          'Si necesitás más información, contactanos en las oficinas de la ASADA.',
-        ],
-        notaFinal: 'Gracias por usar el Sistema de Información de Abonados (SIAPB).',
+        titulo,
+        cuerpoHtml,
+        avisoPie:
+          'Si requiere asistencia o aclaración adicional sobre esta respuesta, comuníquese con las oficinas de la ASADA.',
       }),
     });
   }
 
-  // Notificación del resultado de una solicitud de "cambio de representante".
-  // Se envía al abonado solicitante y, si el nuevo representante registró su
-  // propio correo (distinto del de la cuenta), también a él.
+  /**
+   * 6. Resultado de solicitud de cambio de representante legal:
+   * Detalla la resolución y notifica tanto al solicitante como al nuevo representante (si tiene correo propio).
+   */
   async enviarCorreoResultadoCambioRepresentante(
     destinatario: string,
     correoNuevoRepresentante: string | null,
@@ -285,70 +556,107 @@ export class MailService {
     },
   ): Promise<void> {
     const esAprobada = datos.estadoResultado === 'aprobado';
+    const titulo = 'Resolución de Trámite de Personería Jurídica';
     const asuntoBase = esAprobada ? 'aprobada' : 'rechazada';
 
-    const parrafosSolicitante = esAprobada
-      ? [
-          `Tu solicitud de <strong>${datos.tipo}</strong> con código <strong>${datos.codigo}</strong> fue <strong>aprobada</strong>.`,
-          `Desde ahora, <strong>${datos.nombreNuevoRepresentante}</strong> queda registrado como representante legal de tu cuenta.`,
-        ]
-      : [
-          `Tu solicitud de <strong>${datos.tipo}</strong> con código <strong>${datos.codigo}</strong> fue <strong>rechazada</strong>.`,
-          datos.motivo
-            ? `Motivo del rechazo: ${datos.motivo}`
-            : 'Si tenés dudas, contactanos en las oficinas de la ASADA.',
-        ];
+    const detalles = [
+      { etiqueta: 'Código de Trámite', valor: `<strong>${this.escapeHtml(datos.codigo)}</strong>` },
+      { etiqueta: 'Tipo de Trámite', valor: this.escapeHtml(datos.tipo) },
+      { etiqueta: 'Nuevo Representante', valor: this.escapeHtml(datos.nombreNuevoRepresentante) },
+      { etiqueta: 'Estado de Resolución', valor: this.renderBadgeEstado(datos.estadoResultado) },
+    ];
 
+    const mensajeSolicitante = esAprobada
+      ? `<p style="margin:0 0 16px;color:#166534;font-weight:600;">
+          Su solicitud ha sido aprobada. A partir de este momento, <strong>${this.escapeHtml(
+            datos.nombreNuevoRepresentante,
+          )}</strong> queda formalmente registrado(a) como representante legal de la cuenta de abonado.
+        </p>`
+      : `<p style="margin:0 0 16px;color:#991b1b;font-weight:600;">
+          La solicitud de cambio de representante legal ha sido denegada.
+        </p>
+        ${
+          datos.motivo
+            ? this.renderCajaAlerta(this.escapeHtml(datos.motivo), 'danger')
+            : this.renderCajaAlerta('Para más detalles, favor consultar en las oficinas de la ASADA.', 'info')
+        }`;
+
+    const cuerpoSolicitante = `
+      <p style="margin:0 0 16px;">Estimado(a) abonado(a),</p>
+      <p style="margin:0 0 16px;">
+        Le compartimos la resolución administrativa emitida respecto al trámite de acreditación de personería jurídica:
+      </p>
+      ${this.renderFichaDetalles(detalles)}
+      ${mensajeSolicitante}
+    `;
+
+    // 1. Envío al solicitante titular
     await this.transporter.sendMail({
       from:
         this.configService.get<string>('EMAIL_FROM') ??
         'no-reply@asada.local',
       to: destinatario,
-      subject: `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} ${asuntoBase}`,
+      subject: `${this.nombreAsada} — Solicitud ${datos.codigo} ${asuntoBase}`,
       html: this.plantillaBase({
-        tituloEncabezado: 'Resultado de tu solicitud',
-        saludo: 'Hola,',
-        parrafos: parrafosSolicitante,
-        notaFinal: 'Gracias por usar el Sistema de Información de Abonados (SIAPB).',
+        titulo,
+        cuerpoHtml: cuerpoSolicitante,
+        avisoPie:
+          'Este cambio queda registrado en la bitácora legal del sistema de abonados de la ASADA.',
       }),
     });
 
-    // Segundo correo: el nuevo representante, si registró su propio correo y
-    // es distinto del correo de la cuenta.
+    // 2. Envío al nuevo representante si su correo es distinto
     if (
       correoNuevoRepresentante?.trim() &&
       correoNuevoRepresentante.trim().toLowerCase() !==
         destinatario.toLowerCase()
     ) {
-      const parrafosNuevoRep = esAprobada
-        ? [
-            `Se te ha registrado como <strong>nuevo representante legal</strong> de una cuenta de <strong>${datos.tipo}</strong> (solicitud <strong>${datos.codigo}</strong> aprobada).`,
-          ]
-        : [
-            `La solicitud de cambio de representante en la que tu nombre figuraba como nuevo representante (código <strong>${datos.codigo}</strong>) fue <strong>rechazada</strong>.`,
+      const mensajeNuevoRep = esAprobada
+        ? `<p style="margin:0 0 16px;color:#166534;font-weight:600;">
+            Le informamos formalmente que usted ha sido acreditado(a) como representante legal registrado(a) de la cuenta vinculada a este trámite.
+          </p>`
+        : `<p style="margin:0 0 16px;color:#991b1b;font-weight:600;">
+            La solicitud de designación de representación legal en la que usted fue postulado(a) no fue aprobada por la administración.
+          </p>
+          ${
             datos.motivo
-              ? `Motivo del rechazo: ${datos.motivo}`
-              : 'Si tenés dudas, contactá a las oficinas de la ASADA.',
-          ];
+              ? this.renderCajaAlerta(this.escapeHtml(datos.motivo), 'danger')
+              : ''
+          }`;
+
+      const cuerpoNuevoRep = `
+        <p style="margin:0 0 16px;">Estimado(a) <strong>${this.escapeHtml(
+          datos.nombreNuevoRepresentante,
+        )}</strong>,</p>
+        <p style="margin:0 0 16px;">
+          Le notificamos la resolución correspondiente al trámite de acreditación legal ante la <strong>${this.escapeHtml(
+            this.nombreAsada,
+          )}</strong>:
+        </p>
+        ${this.renderFichaDetalles(detalles)}
+        ${mensajeNuevoRep}
+      `;
 
       await this.transporter.sendMail({
         from:
           this.configService.get<string>('EMAIL_FROM') ??
           'no-reply@asada.local',
         to: correoNuevoRepresentante.trim(),
-        subject: `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} ${asuntoBase}`,
+        subject: `${this.nombreAsada} — Solicitud ${datos.codigo} ${asuntoBase}`,
         html: this.plantillaBase({
-          tituloEncabezado: 'Resultado de tu solicitud',
-          saludo: 'Hola,',
-          parrafos: parrafosNuevoRep,
-          notaFinal: 'Gracias por usar el Sistema de Información de Abonados (SIAPB).',
+          titulo,
+          cuerpoHtml: cuerpoNuevoRep,
+          avisoPie:
+            'Para cualquier trámite administrativo futuro, podrá identificarse como apoderado legal activo.',
         }),
       });
     }
   }
 
-  // Notificación del resultado de una solicitud de "cambio de propietario" (cesión de derechos).
-  // Se envía al abonado actual y, si el nuevo propietario registró su propio correo, también a él.
+  /**
+   * 7. Resultado de solicitud de cambio de propietario (cesión de derechos):
+   * Notifica el resultado del traspaso tanto al titular cedente como al nuevo adquirente.
+   */
   async enviarCorreoResultadoCambioPropietario(
     destinatario: string,
     correoNuevoPropietario: string | null,
@@ -361,73 +669,106 @@ export class MailService {
     },
   ): Promise<void> {
     const esAprobada = datos.estadoResultado === 'aprobado';
+    const titulo = 'Resolución de Traspaso de Titularidad';
     const asuntoBase = esAprobada ? 'aprobada' : 'rechazada';
 
-    const parrafosTitular = esAprobada
-      ? [
-          `Tu solicitud de <strong>${datos.tipo}</strong> con código <strong>${datos.codigo}</strong> fue <strong>aprobada</strong>.`,
-          `El traspaso de derechos de la paja de agua a favor de <strong>${datos.nombreNuevoPropietario}</strong> ha sido completado satisfactoriamente.`,
-        ]
-      : [
-          `Tu solicitud de <strong>${datos.tipo}</strong> con código <strong>${datos.codigo}</strong> fue <strong>rechazada</strong>.`,
-          datos.motivo
-            ? `Motivo del rechazo: ${datos.motivo}`
-            : 'Si tenés dudas, contactanos en las oficinas de la ASADA.',
-        ];
+    const detalles = [
+      { etiqueta: 'Código de Trámite', valor: `<strong>${this.escapeHtml(datos.codigo)}</strong>` },
+      { etiqueta: 'Tipo de Trámite', valor: this.escapeHtml(datos.tipo) },
+      { etiqueta: 'Nuevo Titular', valor: this.escapeHtml(datos.nombreNuevoPropietario) },
+      { etiqueta: 'Estado de Resolución', valor: this.renderBadgeEstado(datos.estadoResultado) },
+    ];
 
+    const mensajeCedente = esAprobada
+      ? `<p style="margin:0 0 16px;color:#166534;font-weight:600;">
+          El traspaso de titularidad de la paja de agua a favor de <strong>${this.escapeHtml(
+            datos.nombreNuevoPropietario,
+          )}</strong> ha sido completado y formalizado satisfactoriamente en los registros institucionales.
+        </p>`
+      : `<p style="margin:0 0 16px;color:#991b1b;font-weight:600;">
+          La solicitud de cesión de derechos no ha sido aprobada por la administración.
+        </p>
+        ${
+          datos.motivo
+            ? this.renderCajaAlerta(this.escapeHtml(datos.motivo), 'danger')
+            : this.renderCajaAlerta('Si tiene dudas sobre el trámite, puede presentarse en la oficina de la ASADA.', 'info')
+        }`;
+
+    const cuerpoCedente = `
+      <p style="margin:0 0 16px;">Estimado(a) abonado(a),</p>
+      <p style="margin:0 0 16px;">
+        Le comunicamos la resolución formal referente a la cesión y traspaso de derechos de su servicio de agua potable:
+      </p>
+      ${this.renderFichaDetalles(detalles)}
+      ${mensajeCedente}
+    `;
+
+    // 1. Envío al titular anterior (cedente)
     await this.transporter.sendMail({
       from:
         this.configService.get<string>('EMAIL_FROM') ??
         'no-reply@asada.local',
       to: destinatario,
-      subject: `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} ${asuntoBase}`,
+      subject: `${this.nombreAsada} — Solicitud ${datos.codigo} ${asuntoBase}`,
       html: this.plantillaBase({
-        tituloEncabezado: 'Resultado de tu solicitud',
-        saludo: 'Hola,',
-        parrafos: parrafosTitular,
-        notaFinal: 'Gracias por usar el Sistema de Información de Abonados (SIAPB).',
+        titulo,
+        cuerpoHtml: cuerpoCedente,
+        avisoPie:
+          'Se deja constancia en el expediente de abonado de la ASADA Pueblo Nuevo.',
       }),
     });
 
+    // 2. Envío al nuevo propietario (cesionario) si tiene correo propio
     if (
       correoNuevoPropietario?.trim() &&
       correoNuevoPropietario.trim().toLowerCase() !== destinatario.toLowerCase()
     ) {
-      const parrafosNuevo = esAprobada
-        ? [
-            `Te informamos que la solicitud de <strong>${datos.tipo}</strong> (código <strong>${datos.codigo}</strong>) a tu favor ha sido <strong>aprobada</strong>.`,
-            `Ahora figuras como titular de la paja de agua en el sistema de la ASADA.`,
-          ]
-        : [
-            `La solicitud de cesión de derechos de paja de agua con código <strong>${datos.codigo}</strong> fue <strong>rechazada</strong>.`,
+      const mensajeCesionario = esAprobada
+        ? `<p style="margin:0 0 16px;color:#166534;font-weight:600;">
+            Le informamos con agrado que el traspaso de la paja de agua a su nombre ha sido aprobado. A partir de esta fecha usted figura como el titular formal del servicio en el padrón de la ASADA.
+          </p>`
+        : `<p style="margin:0 0 16px;color:#991b1b;font-weight:600;">
+            La solicitud de cesión de derechos no ha sido aprobada por la administración.
+          </p>
+          ${
             datos.motivo
-              ? `Motivo del rechazo: ${datos.motivo}`
-              : 'Si tenés dudas, contactá a las oficinas de la ASADA.',
-          ];
+              ? this.renderCajaAlerta(this.escapeHtml(datos.motivo), 'danger')
+              : ''
+          }`;
+
+      const cuerpoCesionario = `
+        <p style="margin:0 0 16px;">Estimado(a) <strong>${this.escapeHtml(
+          datos.nombreNuevoPropietario,
+        )}</strong>,</p>
+        <p style="margin:0 0 16px;">
+          Le notificamos el dictamen del trámite de cesión de derechos ante la <strong>${this.escapeHtml(
+            this.nombreAsada,
+          )}</strong>:
+        </p>
+        ${this.renderFichaDetalles(detalles)}
+        ${mensajeCesionario}
+      `;
 
       await this.transporter.sendMail({
         from:
           this.configService.get<string>('EMAIL_FROM') ??
           'no-reply@asada.local',
         to: correoNuevoPropietario.trim(),
-        subject: `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} ${asuntoBase}`,
+        subject: `${this.nombreAsada} — Solicitud ${datos.codigo} ${asuntoBase}`,
         html: this.plantillaBase({
-          tituloEncabezado: 'Resultado de tu solicitud',
-          saludo: 'Hola,',
-          parrafos: parrafosNuevo,
-          notaFinal: 'Gracias por usar el Sistema de Información de Abonados (SIAPB).',
+          titulo,
+          cuerpoHtml: cuerpoCesionario,
+          avisoPie:
+            'A partir del próximo periodo de facturación, los recibos e informes del servicio se emitirán a su nombre.',
         }),
       });
     }
   }
 
-  // Notificación del resultado de la solicitud PÚBLICA de paja de agua (la
-  // que se llena desde el landing, sin sesión iniciada). Al aprobarla, el
-  // sistema ya creó (o reutilizó) su cuenta de Abonado, así que este correo
-  // explica los próximos pasos: gestionar los permisos municipales y, con
-  // ellos, completar la "Solicitud de conexión de paja de agua" desde su
-  // panel — el acceso a la cuenta llega en un correo aparte ("Crear mi
-  // contraseña"), por eso se menciona pero no se repite el enlace acá.
+  /**
+   * 8. Resultado de solicitud pública de paja de agua:
+   * Notifica la resolución inicial y orienta detalladamente sobre los siguientes pasos (permisos y conexión).
+   */
   async enviarCorreoResultadoPajaAgua(
     destinatario: string,
     datos: {
@@ -437,35 +778,70 @@ export class MailService {
     },
   ): Promise<void> {
     const esAprobada = datos.estadoResultado === 'Aprobada';
+    const titulo = 'Resolución de Solicitud de Paja de Agua';
     const urlDashboard = `${this.urlFrontendPublica()}/login`;
 
-    const parrafos = esAprobada
-      ? [
-          `Tu solicitud de <strong>paja de agua</strong> con código <strong>${datos.codigo}</strong> fue <strong>aprobada</strong>.`,
-          'El siguiente paso es gestionar tus permisos municipales. Ya con ellos en mano, iniciá sesión en tu panel de abonado y completá la <strong>"Solicitud de conexión de paja de agua"</strong>, donde vas a adjuntar los documentos correspondientes.',
-          'Te creamos una cuenta de acceso: revisá tu correo por un mensaje aparte para definir tu contraseña.',
-        ]
-      : [
-          `Tu solicitud de <strong>paja de agua</strong> con código <strong>${datos.codigo}</strong> fue <strong>rechazada</strong>.`,
+    const detalles = [
+      { etiqueta: 'Código de Solicitud', valor: `<strong>${this.escapeHtml(datos.codigo)}</strong>` },
+      { etiqueta: 'Tipo de Servicio', valor: 'Nueva Paja de Agua' },
+      { etiqueta: 'Estado de Resolución', valor: this.renderBadgeEstado(datos.estadoResultado) },
+    ];
+
+    const mensajeResolucion = esAprobada
+      ? `
+        <p style="margin:0 0 16px;color:#166534;font-weight:600;">
+          Su solicitud de factibilidad para una nueva paja de agua ha sido <strong>APROBADA</strong> por la junta técnica.
+        </p>
+        <div style="background-color:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:20px 0;">
+          <h3 style="margin:0 0 10px;font-size:14px;color:#166534;font-weight:bold;">Siguientes pasos obligatorios para su conexión:</h3>
+          <ol style="margin:0;padding-left:20px;color:#374151;font-size:14px;line-height:1.6;">
+            <li style="margin-bottom:8px;">
+              <strong>Permisos de Construcción y Municipales:</strong> Gestione los permisos correspondientes ante el gobierno local (Municipalidad) y Ministerio de Salud.
+            </li>
+            <li style="margin-bottom:8px;">
+              <strong>Solicitud de Conexión en el Portal:</strong> Una vez cuente con dichos documentos, ingrese a su portal de abonado y complete la <em>"Solicitud de Conexión de Paja de Agua"</em> adjuntando los requisitos.
+            </li>
+            <li>
+              <strong>Acceso a su cuenta:</strong> Si es un usuario nuevo, le enviamos un correo independiente para definir su contraseña de ingreso.
+            </li>
+          </ol>
+        </div>`
+      : `
+        <p style="margin:0 0 16px;color:#991b1b;font-weight:600;">
+          Su solicitud de paja de agua ha sido denegada tras la evaluación técnica institucional.
+        </p>
+        ${
           datos.motivo
-            ? `Motivo del rechazo: ${datos.motivo}`
-            : 'Si tenés dudas, contactanos en las oficinas de la ASADA.',
-        ];
+            ? this.renderCajaAlerta(this.escapeHtml(datos.motivo), 'danger')
+            : this.renderCajaAlerta(
+                'Para consultar detalles sobre las restricciones técnicas o disponibilidad en la zona, favor acudir a nuestras oficinas.',
+                'info',
+              )
+        }`;
+
+    const cuerpoHtml = `
+      <p style="margin:0 0 16px;">Estimado(a) solicitante,</p>
+      <p style="margin:0 0 16px;">
+        Le notificamos el dictamen oficial correspondiente a su trámite de solicitud de servicio de agua potable:
+      </p>
+      ${this.renderFichaDetalles(detalles)}
+      ${mensajeResolucion}
+    `;
 
     await this.transporter.sendMail({
       from:
         this.configService.get<string>('EMAIL_FROM') ??
         'no-reply@asada.local',
       to: destinatario,
-      subject: `ASADA Pueblo Nuevo — Solicitud ${datos.codigo} ${
+      subject: `${this.nombreAsada} — Solicitud ${datos.codigo} ${
         esAprobada ? 'aprobada' : 'rechazada'
       }`,
       html: this.plantillaBase({
-        tituloEncabezado: 'Resultado de tu solicitud',
-        saludo: 'Hola,',
-        parrafos,
-        boton: esAprobada ? { texto: 'Ir a mi panel', url: urlDashboard } : undefined,
-        notaFinal: 'Gracias por usar el Sistema de Información de Abonados (SIAPB).',
+        titulo,
+        cuerpoHtml,
+        boton: esAprobada ? { texto: 'Ingresar al Portal de Abonados', url: urlDashboard } : undefined,
+        avisoPie:
+          'Agradecemos su interés y compromiso con la gestión hídrica comunal.',
       }),
     });
   }
