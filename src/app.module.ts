@@ -44,6 +44,14 @@ import { BitacoraModule } from './modules/bitacora/bitacora.module';
         // "expirados" casi de inmediato. 'Z' fuerza a mysql2 a leer y
         // escribir siempre en UTC, que es lo que NOW() también usa.
         timezone: 'Z',
+        // Optimización del pool para mitigar consumo de RAM en MySQL Aiven (PBI de optimización)
+        extra: {
+          connectionLimit: 4,
+          idleTimeout: 30000,
+          queueLimit: 0,
+          enableKeepAlive: true,
+          keepAliveInitialDelay: 10000,
+        },
       }),
     }),
    
