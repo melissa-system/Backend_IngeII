@@ -10,6 +10,7 @@ import {
 import { Articulo } from './articulo.entity';
 
 @Entity('movimientos_inventario')
+@Index(['fecha_movimiento'])
 @Index(['articulo', 'fecha_movimiento'])
 export class MovimientoInventario {
   @PrimaryGeneratedColumn()
