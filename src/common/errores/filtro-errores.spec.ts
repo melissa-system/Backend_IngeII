@@ -13,7 +13,11 @@ import {
 import { QueryFailedError } from 'typeorm';
 import { IsNotEmpty, IsString } from 'class-validator';
 import { FiltroErrores } from './filtro-errores.filter';
-import { errorDeCampo, excepcionDeValidacion } from './respuesta-error';
+import {
+  errorDeCampo,
+  excepcionDeValidacion,
+  ORIGEN_AUTORIZACION,
+} from './respuesta-error';
 import { CreateAbonadoDto } from '../../modules/abonados/dto/create-abonado.dto';
 
 // PBI 511 / Task 516: todas las respuestas de error comparten el mismo
@@ -105,6 +109,26 @@ describe('Formato único de errores de la API (PBI 511 / Task 516)', () => {
     expect(respuesta.codigo).toBe(codigo);
     expect(typeof respuesta.message).toBe('string');
     expect(respuesta.errores).toEqual([]);
+  });
+
+  // El 403 de RolesGuard se marca con `origen` para que el frontend sepa que
+  // es una denegación de permisos (pantalla de "Acceso denegado") y no otro
+  // ForbiddenException (reCAPTCHA, reglas de negocio). El filtro global debe
+  // conservar la marca sin tocar el código ni el mensaje.
+  it('conserva la marca de origen en un 403 de autorizacion', () => {
+    const respuesta = filtro.construirRespuesta(
+      new ForbiddenException({
+        message: 'No tienes permisos suficientes para acceder a este recurso',
+        origen: ORIGEN_AUTORIZACION,
+      }),
+    );
+    expect(respuesta).toMatchObject({
+      statusCode: 403,
+      codigo: 'SIN_PERMISO',
+      origen: 'autorizacion',
+      message: 'No tienes permisos suficientes para acceder a este recurso',
+      errores: [],
+    });
   });
 
   it('los mensajes en inglés de Nest y multer se muestran en español', () => {

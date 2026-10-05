@@ -1,9 +1,19 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { Role } from '../enums/roles.enum';
+import { ORIGEN_AUTORIZACION } from '../errores/respuesta-error';
 
+// Guard de roles. Los 403 que lanza llevan `origen: 'autorizacion'` para que
+// el frontend los distinga de otros ForbiddenException que el backend lanza
+// por causas ajenas a los permisos (reCAPTCHA, reglas de negocio): solo estos
+// abren la pantalla de "Acceso denegado".
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
@@ -34,7 +44,10 @@ export class RolesGuard implements CanActivate {
     const { user } = context.switchToHttp().getRequest();
 
     if (!user || !user.role) {
-      throw new ForbiddenException('No tienes permisos para realizar esta acción');
+      throw new ForbiddenException({
+        message: 'No tienes permisos para realizar esta acción',
+        origen: ORIGEN_AUTORIZACION,
+      });
     }
 
     // 4. Regla de Oro: SUPER_ADMIN (Junta Directiva) tiene acceso total a cualquier módulo
@@ -45,7 +58,10 @@ export class RolesGuard implements CanActivate {
     // 5. Validar si el rol del usuario coincide con los roles permitidos
     const hasRole = requiredRoles.includes(user.role);
     if (!hasRole) {
-      throw new ForbiddenException('No tienes permisos suficientes para acceder a este recurso');
+      throw new ForbiddenException({
+        message: 'No tienes permisos suficientes para acceder a este recurso',
+        origen: ORIGEN_AUTORIZACION,
+      });
     }
 
     return true;

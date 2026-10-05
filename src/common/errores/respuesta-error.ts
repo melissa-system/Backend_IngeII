@@ -33,6 +33,13 @@ export interface RespuestaError {
   [extra: string]: unknown;
 }
 
+// Marca de origen en las respuestas 403: distingue una denegación de
+// autorización (RolesGuard: el usuario no tiene permiso para el recurso) de
+// otros 403 que el backend lanza por causas ajenas a los permisos (reCAPTCHA,
+// reglas de negocio). El frontend solo muestra la pantalla de "Acceso denegado"
+// cuando trae esta marca; los demás 403 se quedan como un error en línea.
+export const ORIGEN_AUTORIZACION = 'autorizacion';
+
 export const CODIGOS_ERROR: Record<number, string> = {
   [HttpStatus.BAD_REQUEST]: 'DATOS_INVALIDOS',
   [HttpStatus.UNAUTHORIZED]: 'NO_AUTENTICADO',
