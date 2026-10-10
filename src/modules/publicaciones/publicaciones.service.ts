@@ -216,4 +216,33 @@ export class PublicacionesService {
 
     return guardada;
   }
+
+  // Eliminación definitiva (mismo criterio que documentos: se borra el
+  // registro completo, sin papelera de reciclaje). Se audita en la bitácora.
+  async remove(
+    id: number,
+    usuarioId?: number,
+  ): Promise<{ id: number; eliminada: true }> {
+    const publicacion = await this.publicacionRepository.findOneBy({ id });
+    if (!publicacion) {
+      throw new NotFoundException(
+        `La publicación con el ID ${id} no fue encontrada`,
+      );
+    }
+
+    const titulo = publicacion.titulo;
+    await this.publicacionRepository.remove(publicacion);
+
+    const autor = await this.autorDe(usuarioId);
+    if (autor) {
+      await this.bitacoraService.registrarEliminacion(
+        ModuloBitacora.PUBLICACIONES,
+        id,
+        autor,
+        `Publicación "${titulo}" eliminada`,
+      );
+    }
+
+    return { id, eliminada: true };
+  }
 }
