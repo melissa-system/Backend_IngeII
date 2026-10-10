@@ -25,21 +25,24 @@ export class CrearArticuloDto {
   })
   descripcion: string;
 
-  @IsIn(['inmueble', 'articulo'], {
-    message: 'La clasificación debe ser "inmueble" o "articulo"',
-  })
-  clasificacion: 'inmueble' | 'articulo';
+  @IsIn(
+    ['articulo', 'materiales', 'herramientas', 'seguridad', 'productos'],
+    {
+      message:
+        'La clasificación debe ser "articulo", "materiales", "herramientas", "seguridad" o "productos"',
+    },
+  )
+  clasificacion:
+    | 'articulo'
+    | 'materiales'
+    | 'herramientas'
+    | 'seguridad'
+    | 'productos';
 
   @Type(() => Number)
   @IsInt({ message: 'La cantidad debe ser un número entero' })
   @Min(0, { message: 'La cantidad no puede ser negativa' })
   cantidad: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt({ message: 'El umbral mínimo debe ser un número entero' })
-  @Min(1, { message: 'El umbral mínimo debe ser al menos 1' })
-  umbralMinimo?: number;
 
   @IsOptional()
   @IsDateString(
