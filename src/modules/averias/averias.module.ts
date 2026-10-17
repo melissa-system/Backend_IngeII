@@ -6,12 +6,19 @@ import { Averia } from './entities/averia.entity';
 import { HistorialAveria } from './entities/historial-averia.entity';
 import { Empleado } from '../empleados/entities/empleado.entity';
 import { Abonado } from '../abonados/entities/abonado.entity';
+import { User } from '../auth/entities/user.entity';
 import { BitacoraModule } from '../bitacora/bitacora.module';
 import { RecaptchaModule } from '../../common/recaptcha/recaptcha.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Averia, HistorialAveria, Empleado, Abonado]),
+    TypeOrmModule.forFeature([
+      Averia,
+      HistorialAveria,
+      Empleado,
+      Abonado,
+      User,
+    ]),
     BitacoraModule,
     RecaptchaModule,
   ],

@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository, SelectQueryBuilder } from 'typeorm';
@@ -12,6 +13,7 @@ import { UpdateAveriaDto } from './dto/update-averia.dto';
 import { FiltroEstadisticasAveriasDto } from './dto/filtro-estadisticas-averias.dto';
 import { Empleado } from '../empleados/entities/empleado.entity';
 import { Abonado } from '../abonados/entities/abonado.entity';
+import { User } from '../auth/entities/user.entity';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import {
   ModuloBitacora,
@@ -38,6 +40,8 @@ export class AveriasService {
     private readonly empleadoRepository: Repository<Empleado>,
     @InjectRepository(Abonado)
     private readonly abonadoRepository: Repository<Abonado>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
     private readonly bitacoraService: BitacoraService,
   ) {}
 
@@ -142,7 +146,11 @@ export class AveriasService {
         await this.armarHistorial(averia.id);
     }
 
-    return averias;
+    // Las devueltas por revisión van primero (sort estable): son las que el
+    // fontanero debe volver a atender, y así no se pierden entre las demás.
+    return averias.sort(
+      (a, b) => Number(b.devuelta_revision) - Number(a.devuelta_revision),
+    );
   }
 
   async findOne(id: number): Promise<Averia> {
@@ -235,6 +243,123 @@ export class AveriasService {
 
     await this.averiaRepository.save(averia);
     return this.findOne(id);
+  }
+
+  // Resuelve el empleado del fontanero autenticado y comprueba que la avería
+  // esté asignada a él: nadie puede iniciar ni finalizar la gestión de una
+  // avería ajena aunque tenga el rol.
+  private async averiaDelFontanero(
+    id: number,
+    user: RequestUser,
+  ): Promise<Averia> {
+    const empleado = await this.empleadoRepository.findOne({
+      where: { usuario: { id: user.id } },
+    });
+    if (!empleado) {
+      throw new NotFoundException(
+        'No se encontró un empleado vinculado a esta cuenta',
+      );
+    }
+
+    const averia = await this.findOne(id);
+    if (averia.empleado?.id !== empleado.id) {
+      throw new ForbiddenException(
+        'Esta avería no está asignada a tu cuenta.',
+      );
+    }
+
+    return averia;
+  }
+
+  private async autorDe(usuarioId: number) {
+    const usuario = await this.userRepository.findOneBy({ id: usuarioId });
+    return { id: usuarioId, email: usuario?.email ?? null };
+  }
+
+  // El fontanero empieza a atender una avería asignada: arranca el cronómetro
+  // y la marca "En proceso". Si ya había iniciado antes, NO reinicia el
+  // cronómetro (es idempotente).
+  async iniciarGestion(id: number, user: RequestUser): Promise<Averia> {
+    const averia = await this.averiaDelFontanero(id, user);
+
+    if (averia.estado === 'Finalizado' || averia.estado === 'En revisión') {
+      throw new BadRequestException(
+        'Esta avería ya fue reportada o finalizada y no se puede volver a iniciar.',
+      );
+    }
+
+    const estadoAnterior = averia.estado;
+
+    // La hora de inicio la pone el servidor: el cronómetro del frontend se
+    // calcula contra ella, así que recargar la página no lo altera. Si la
+    // gestión anterior ya se había terminado sin reportar, se reinicia.
+    if (!averia.gestion_iniciada_en || averia.gestion_finalizada_en) {
+      averia.gestion_iniciada_en = new Date();
+      averia.gestion_finalizada_en = null;
+    }
+    // Al retomar la avería se limpia la marca de "devuelta por revisión".
+    averia.devuelta_revision = false;
+    averia.motivo_revision = null;
+    averia.estado = 'En proceso';
+
+    if (estadoAnterior !== 'En proceso') {
+      const autor = await this.autorDe(user.id);
+      await this.bitacoraService.registrarCambioEstado(
+        ModuloBitacora.AVERIAS,
+        id,
+        autor,
+        estadoAnterior,
+        'En proceso',
+        'El fontanero inició la gestión de la avería.',
+      );
+    }
+
+    await this.averiaRepository.save(averia);
+    return this.findOne(id);
+  }
+
+  // El fontanero termina de trabajar en la avería: detiene el cronómetro y
+  // devuelve la duración real en minutos para prellenar el reporte. NO marca
+  // la avería como finalizada: la resolución la aprueba o rechaza la
+  // administración al revisar el reporte. El estado queda "En proceso" hasta
+  // que se registre el reporte (pasa a "En revisión"). Idempotente.
+  async terminarGestion(
+    id: number,
+    user: RequestUser,
+  ): Promise<Averia & { duracion_minutos: number }> {
+    const averia = await this.averiaDelFontanero(id, user);
+
+    if (averia.estado === 'Finalizado' || averia.estado === 'En revisión') {
+      throw new BadRequestException(
+        'Esta avería ya fue reportada o finalizada.',
+      );
+    }
+
+    if (!averia.gestion_finalizada_en) {
+      averia.gestion_finalizada_en = new Date();
+    }
+
+    await this.averiaRepository.save(averia);
+
+    const actualizada = await this.findOne(id);
+    return Object.assign(actualizada, {
+      duracion_minutos: this.calcularDuracionMinutos(
+        actualizada.gestion_iniciada_en,
+        actualizada.gestion_finalizada_en,
+      ),
+    });
+  }
+
+  // Duración en minutos entre dos marcas de tiempo, acotada a 1–1440 (el tope
+  // de 24 h del reporte). Devuelve 0 si falta alguna marca.
+  private calcularDuracionMinutos(
+    inicio: Date | null,
+    fin: Date | null,
+  ): number {
+    if (!inicio || !fin) return 0;
+    const ms = fin.getTime() - inicio.getTime();
+    if (ms <= 0) return 0;
+    return Math.min(1440, Math.max(1, Math.round(ms / 60000)));
   }
 
   // Arma el historial de una avería con la MISMA forma que devolvía la

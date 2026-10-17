@@ -7,6 +7,7 @@ import { MaterialReporteFontanero } from './entities/material-reporte-fontanero.
 import { Empleado } from '../empleados/entities/empleado.entity';
 import { User } from '../auth/entities/user.entity';
 import { BitacoraModule } from '../bitacora/bitacora.module';
+import { CloudinaryModule } from '../../config/cloudinary.module';
 
 @Module({
   // Los materiales van en texto libre dentro del propio reporte y ya no se
@@ -19,6 +20,8 @@ import { BitacoraModule } from '../bitacora/bitacora.module';
       User,
     ]),
     BitacoraModule,
+    // Para subir la evidencia opcional a Cloudinary.
+    CloudinaryModule,
   ],
   controllers: [ReportesFontaneroController],
   providers: [ReportesFontaneroService],

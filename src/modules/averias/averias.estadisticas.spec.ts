@@ -12,6 +12,7 @@ describe('Averías Estadísticas (PBI 336 / Task 337, 338, 340)', () => {
   let historialRepository: any;
   let empleadoRepository: any;
   let abonadoRepository: any;
+  let userRepository: any;
   let bitacoraService: any;
 
   let queryBuilderMock: any;
@@ -28,6 +29,10 @@ describe('Averías Estadísticas (PBI 336 / Task 337, 338, 340)', () => {
       apellido1_reportante: 'Pérez',
       apellido2_reportante: 'Mora',
       fecha_reporte: new Date('2026-01-15T10:00:00.000Z'),
+      gestion_iniciada_en: null,
+      gestion_finalizada_en: null,
+      devuelta_revision: false,
+      motivo_revision: null,
       empleado: null,
       historial: [],
     },
@@ -42,6 +47,10 @@ describe('Averías Estadísticas (PBI 336 / Task 337, 338, 340)', () => {
       apellido1_reportante: 'Rojas',
       apellido2_reportante: null,
       fecha_reporte: new Date('2026-01-20T14:30:00.000Z'),
+      gestion_iniciada_en: null,
+      gestion_finalizada_en: null,
+      devuelta_revision: false,
+      motivo_revision: null,
       empleado: { id: 1, nombre: 'Carlos', apellido1: 'Fontanero' } as any,
       historial: [],
     },
@@ -85,6 +94,10 @@ describe('Averías Estadísticas (PBI 336 / Task 337, 338, 340)', () => {
       findOne: jest.fn(),
     };
 
+    userRepository = {
+      findOneBy: jest.fn(),
+    };
+
     bitacoraService = {
       registrar: jest.fn(),
       registrarCreacion: jest.fn(),
@@ -97,6 +110,7 @@ describe('Averías Estadísticas (PBI 336 / Task 337, 338, 340)', () => {
       historialRepository,
       empleadoRepository,
       abonadoRepository,
+      userRepository,
       bitacoraService,
     );
 

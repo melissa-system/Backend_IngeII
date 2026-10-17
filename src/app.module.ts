@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AveriasModule } from './modules/averias/averias.module';
+import { LaboresAdicionalesModule } from './modules/labores-adicionales/labores-adicionales.module';
 import { InventarioModule } from './modules/inventario/inventario.module';
 import { ReportesFontaneroModule } from './modules/reportes-fontanero/reportes-fontanero.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -57,6 +58,7 @@ import { BitacoraModule } from './modules/bitacora/bitacora.module';
    
     AuthModule,
     AveriasModule,
+    LaboresAdicionalesModule,
     InventarioModule,
     ReportesFontaneroModule,
     SolicitudesModule,

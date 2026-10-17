@@ -15,6 +15,7 @@
     "seed": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/seed-admin.ts",
     "seed:roles": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/seed-roles.ts",
     "backfill:roles": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/backfill-role-ids.ts",
+    "cleanup:reportes": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/limpiar-reportes-duplicados.ts",
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/data-source.ts",
     "migration:create": "typeorm-ts-node-commonjs migration:create",
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/data-source.ts",
