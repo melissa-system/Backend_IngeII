@@ -43,7 +43,7 @@ export class Averia {
 
   @Column({
     type: 'enum',
-    enum: ['Pendiente', 'En proceso', 'Finalizado'],
+    enum: ['Pendiente', 'En proceso', 'En revisión', 'Finalizado'],
     default: 'Pendiente',
   })
   estado: string;
@@ -62,6 +62,25 @@ export class Averia {
 
   @CreateDateColumn()
   fecha_reporte: Date;
+
+  // Cronómetro de la gestión del fontanero: cuándo empezó a atender la avería
+  // y cuándo terminó. Ambos nullable porque una avería recién reportada aún no
+  // tiene gestión. Se guardan del lado del servidor para que el tiempo sea real
+  // aunque el fontanero recargue la página.
+  @Column({ type: 'datetime', nullable: true })
+  gestion_iniciada_en: Date | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  gestion_finalizada_en: Date | null;
+
+  // Marca de devolución: la administración rechazó la resolución del reporte y
+  // la avería vuelve a manos del fontanero. `motivo_revision` guarda el porqué
+  // para mostrárselo. Se limpian al volver a atender la avería o al aprobarla.
+  @Column({ type: 'boolean', default: false })
+  devuelta_revision: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  motivo_revision: string | null;
 
   @ManyToOne(() => Empleado, { nullable: true })
   @JoinColumn({ name: 'id_empleado' })

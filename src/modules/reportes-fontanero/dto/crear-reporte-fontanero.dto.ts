@@ -45,12 +45,20 @@ export class CrearReporteFontaneroDto {
   tiempoMinutos: number;
 
   // Avería que originó el trabajo. Opcional: hay actividades que no vienen de
-  // una avería reportada.
+  // una avería reportada. Excluyente con laborId.
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: 'La avería seleccionada no es válida' })
   @Min(1, { message: 'La avería seleccionada no es válida' })
   averiaId?: number;
+
+  // Labor adicional que originó el trabajo (creada por la administración).
+  // Excluyente con averiaId.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'La labor seleccionada no es válida' })
+  @Min(1, { message: 'La labor seleccionada no es válida' })
+  laborId?: number;
 
   // Materiales utilizados, en texto libre. Opcional: no todo trabajo consume
   // material. Podría ser "" si el cliente manda el campo vacío.

@@ -10,7 +10,11 @@ import {
 } from 'typeorm';
 import { Empleado } from '../../empleados/entities/empleado.entity';
 import { Averia } from '../../averias/entities/averia.entity';
-import { TipoActividad } from './reporte-fontanero.enums';
+import { LaborAdicional } from '../../labores-adicionales/entities/labor-adicional.entity';
+import {
+  EstadoRevisionReporte,
+  TipoActividad,
+} from './reporte-fontanero.enums';
 import { MaterialReporteFontanero } from './material-reporte-fontanero.entity';
 
 // Reporte de actividad que llena el fontanero después de atender un trabajo.
@@ -40,7 +44,10 @@ export class ReporteFontanero {
   // Fecha en que se hizo el trabajo, que puede ser anterior al día en que se
   // llena el reporte (el fontanero suele registrarlo al volver a la oficina).
   // Distinta de fecha_registro, que es cuándo se guardó en el sistema.
-  @Column({ type: 'date' })
+  // `utc: true`: la conexión usa timezone 'Z', así que mysql2 lee el DATE como
+  // medianoche UTC; sin esta bandera TypeORM lo reformatea con getters locales
+  // y en Costa Rica (UTC-6) devolvía el día anterior.
+  @Column({ type: 'date', utc: true })
   fecha_trabajo: string;
 
   // Tiempo empleado en minutos. Se guarda en minutos y no en horas para no
@@ -58,6 +65,15 @@ export class ReporteFontanero {
   @Column({ type: 'int', nullable: true })
   averia_id: number | null;
 
+  // Labor adicional que originó el trabajo, si aplica. Un reporte se vincula a
+  // una avería O a una labor (o a ninguna), no a ambas.
+  @ManyToOne(() => LaborAdicional, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'labor_id' })
+  labor: LaborAdicional | null;
+
+  @Column({ type: 'int', nullable: true })
+  labor_id: number | null;
+
   @OneToMany(() => MaterialReporteFontanero, (material) => material.reporte)
   materiales: MaterialReporteFontanero[];
 
@@ -66,6 +82,33 @@ export class ReporteFontanero {
   // vinculados a inventario; los nuevos solo este texto.
   @Column({ type: 'text', nullable: true })
   materiales_texto: string | null;
+
+  // Evidencia opcional del trabajo (una imagen). Se guarda la URL de
+  // Cloudinary, su public_id (para poder borrarla/reemplazarla) y el nombre
+  // original del archivo.
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  evidencia_url: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  evidencia_public_id: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  evidencia_nombre: string | null;
+
+  // Cuántas veces se reenvió este reporte tras un rechazo. Se reutiliza la
+  // misma fila del reporte en vez de crear duplicados.
+  @Column({ type: 'int', default: 0 })
+  reintentos: number;
+
+  // Revisión de la administración sobre la resolución de la avería vinculada.
+  // Los reportes sin avería también lo llevan, pero no tienen resolución que
+  // aprobar; ahí sirve solo como sello de conformidad.
+  @Column({
+    type: 'enum',
+    enum: EstadoRevisionReporte,
+    default: EstadoRevisionReporte.PENDIENTE,
+  })
+  estado_revision: EstadoRevisionReporte;
 
   @CreateDateColumn()
   fecha_registro: Date;

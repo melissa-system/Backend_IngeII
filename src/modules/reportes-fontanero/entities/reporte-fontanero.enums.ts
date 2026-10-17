@@ -8,3 +8,12 @@ export enum TipoActividad {
   ATENCION_AVERIA = 'atencion_averia',
   OTRO = 'otro',
 }
+
+// Estado de revisión del reporte por parte de la administración. La resolución
+// de una avería NO la cierra el fontanero: al registrar el reporte queda
+// "Pendiente" y es la administración quien la aprueba o rechaza.
+export enum EstadoRevisionReporte {
+  PENDIENTE = 'Pendiente',
+  APROBADO = 'Aprobado',
+  RECHAZADO = 'Rechazado',
+}

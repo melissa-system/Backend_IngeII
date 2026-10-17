@@ -9,7 +9,12 @@ import { TipoActividad } from './entities/reporte-fontanero.enums';
 describe('ReportesFontaneroService', () => {
   let service: ReportesFontaneroService;
   let reportes: any[];
-  let bitacoraService: { registrarCreacion: jest.Mock };
+  let bitacoraService: {
+    registrarCreacion: jest.Mock;
+    registrarCambioEstado: jest.Mock;
+  };
+  let cloudinaryService: { subirArchivo: jest.Mock; eliminarArchivo: jest.Mock };
+  let laboresService: { crearDesdeReporte: jest.Mock };
   let empleadoRepository: any;
 
   const fontanero = { id: 4, nombre: 'Luis Fontanero', usuario: { id: 9 } };
@@ -22,10 +27,26 @@ describe('ReportesFontaneroService', () => {
     tiempoMinutos: 120,
   };
 
+  // Avería falsa (id 7) asignada al fontanero, para probar el reenvío.
+  const averiaFalsa = {
+    id: 7,
+    estado: 'En proceso',
+    empleado: { id: 4 },
+    devuelta_revision: true,
+    motivo_revision: 'Falta evidencia',
+    gestion_finalizada_en: null,
+  };
+
   // "Transacción" simulada: guarda los cambios en un arreglo y, si el
   // callback lanza, los revierte — igual que haría MySQL con un ROLLBACK.
   function dataSourceFalso() {
     return {
+      manager: {
+        findOne: jest.fn((_entidad: unknown, opts: any) =>
+          Promise.resolve(opts?.where?.id === 7 ? { ...averiaFalsa } : null),
+        ),
+        save: jest.fn((_entidad: unknown, fila: any) => Promise.resolve(fila)),
+      },
       transaction: async (fn: (m: any) => Promise<any>) => {
         const reportesAntes = [...reportes];
         try {
@@ -53,7 +74,26 @@ describe('ReportesFontaneroService', () => {
   beforeEach(() => {
     reportes = [];
 
-    bitacoraService = { registrarCreacion: jest.fn(() => Promise.resolve()) };
+    bitacoraService = {
+      registrarCreacion: jest.fn(() => Promise.resolve()),
+      registrarCambioEstado: jest.fn(() => Promise.resolve()),
+    };
+
+    cloudinaryService = {
+      subirArchivo: jest.fn(() =>
+        Promise.resolve({
+          url: 'https://cdn.test/evidencia.jpg',
+          publicId: 'asada/reportes-fontanero/evidencia',
+        }),
+      ),
+      eliminarArchivo: jest.fn(() => Promise.resolve()),
+    };
+
+    laboresService = {
+      crearDesdeReporte: jest.fn(() =>
+        Promise.resolve({ id: 50, empleado_id: 4 }),
+      ),
+    };
 
     empleadoRepository = {
       findOne: jest.fn(({ where }: any) =>
@@ -62,9 +102,30 @@ describe('ReportesFontaneroService', () => {
     };
 
     const reporteRepository = {
-      findOne: jest.fn(({ where }: any) =>
-        Promise.resolve(reportes.find((r) => r.id === where.id) ?? null),
-      ),
+      findOne: jest.fn((opts: any) => {
+        const where = opts?.where ?? {};
+        if (where.id !== undefined) {
+          return Promise.resolve(reportes.find((r) => r.id === where.id) ?? null);
+        }
+        if (where.averia_id !== undefined) {
+          const coinc = reportes.filter(
+            (r) =>
+              r.averia_id === where.averia_id &&
+              r.empleado_id === where.empleado_id,
+          );
+          return Promise.resolve(coinc[coinc.length - 1] ?? null);
+        }
+        return Promise.resolve(null);
+      }),
+      save: jest.fn((fila: any) => {
+        if (fila.id === undefined) {
+          fila.id = reportes.reduce((m, r) => Math.max(m, r.id ?? 0), 0) + 1;
+        }
+        const idx = reportes.findIndex((r) => r.id === fila.id);
+        if (idx >= 0) reportes[idx] = fila;
+        else reportes.push(fila);
+        return Promise.resolve(fila);
+      }),
       find: jest.fn(() => Promise.resolve(reportes)),
       findAndCount: jest.fn(() => Promise.resolve([reportes, reportes.length])),
     };
@@ -72,9 +133,15 @@ describe('ReportesFontaneroService', () => {
     service = new ReportesFontaneroService(
       reporteRepository as any,
       empleadoRepository as any,
-      { findOneBy: jest.fn(() => Promise.resolve({ id: 9, email: 'luis@asada.test' })) } as any,
+      {
+        findOneBy: jest.fn(() =>
+          Promise.resolve({ id: 9, email: 'luis@asada.test' }),
+        ),
+      } as any,
       bitacoraService as any,
       dataSourceFalso(),
+      cloudinaryService as any,
+      laboresService as any,
     );
   });
 
@@ -112,6 +179,53 @@ describe('ReportesFontaneroService', () => {
 
     expect(reportes).toHaveLength(1);
     expect(reportes[0].materiales_texto).toBeNull();
+  });
+
+  it('sube la evidencia opcional a Cloudinary y guarda la URL', async () => {
+    await service.crear(dtoBase as any, usuarioFontanero, {
+      originalname: 'foto.jpg',
+      mimetype: 'image/jpeg',
+    } as any);
+
+    expect(cloudinaryService.subirArchivo).toHaveBeenCalled();
+    expect(reportes[0].evidencia_url).toBe('https://cdn.test/evidencia.jpg');
+    expect(reportes[0].evidencia_nombre).toBe('foto.jpg');
+  });
+
+  it('crea una labor adicional cuando el reporte es manual (sin avería ni labor)', async () => {
+    await service.crear(dtoBase as any, usuarioFontanero);
+
+    expect(laboresService.crearDesdeReporte).toHaveBeenCalled();
+    expect(reportes[0].labor_id).toBe(50);
+  });
+
+  it('reenvía sobre el reporte rechazado en vez de crear uno nuevo', async () => {
+    reportes.push({
+      id: 1,
+      empleado_id: 4,
+      averia_id: 7,
+      estado_revision: 'Rechazado',
+      reintentos: 0,
+      descripcion: 'intento anterior',
+      tiempo_minutos: 10,
+      evidencia_url: null,
+      evidencia_public_id: null,
+      evidencia_nombre: null,
+    });
+
+    await service.crear(
+      {
+        ...dtoBase,
+        averiaId: 7,
+        descripcion: 'Trabajo corregido completo',
+      } as any,
+      usuarioFontanero,
+    );
+
+    expect(reportes).toHaveLength(1);
+    expect(reportes[0].estado_revision).toBe('Pendiente');
+    expect(reportes[0].reintentos).toBe(1);
+    expect(reportes[0].descripcion).toBe('Trabajo corregido completo');
   });
 
   it('deja el movimiento auditado en la bitácora', async () => {
