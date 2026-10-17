@@ -83,6 +83,41 @@ export class LaboresAdicionalesService {
     return this.findOne(guardada.id);
   }
 
+  // Crea una labor a partir de un reporte manual del fontanero (un reporte que
+  // no está ligado a una avería ni a una labor ya asignada). Queda "En
+  // revisión" para que la administración la revise desde el reporte y, al
+  // aprobarla, aparezca como finalizada en "Otros mantenimientos".
+  async crearDesdeReporte(datos: {
+    tipoActividad: TipoActividad;
+    descripcion: string;
+    empleadoId: number;
+    creadoPorId?: number;
+  }): Promise<LaborAdicional> {
+    const empleado = await this.buscarEmpleado(datos.empleadoId);
+    const creadoPor = datos.creadoPorId
+      ? await this.userRepository.findOneBy({ id: datos.creadoPorId })
+      : null;
+
+    const labor = this.laborRepository.create({
+      codigo_labor: this.generarCodigo(),
+      tipo_actividad: datos.tipoActividad,
+      descripcion: datos.descripcion.trim(),
+      estado: 'En revisión',
+      empleado,
+      creado_por: creadoPor,
+    });
+    const guardada = await this.laborRepository.save(labor);
+
+    await this.bitacoraService.registrarCreacion(
+      ModuloBitacora.LABORES_ADICIONALES,
+      guardada.id,
+      await this.autorDe(datos.creadoPorId),
+      `Se registró la labor ${guardada.codigo_labor} desde un reporte del fontanero.`,
+    );
+
+    return this.findOne(guardada.id);
+  }
+
   async findAll(filtros: FiltrarLaboresDto): Promise<LaborAdicional[]> {
     const where: Record<string, unknown> = {};
     if (filtros.estado) where.estado = filtros.estado;

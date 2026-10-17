@@ -8,6 +8,7 @@ import { Empleado } from '../empleados/entities/empleado.entity';
 import { User } from '../auth/entities/user.entity';
 import { BitacoraModule } from '../bitacora/bitacora.module';
 import { CloudinaryModule } from '../../config/cloudinary.module';
+import { LaboresAdicionalesModule } from '../labores-adicionales/labores-adicionales.module';
 
 @Module({
   // Los materiales van en texto libre dentro del propio reporte y ya no se
@@ -22,6 +23,8 @@ import { CloudinaryModule } from '../../config/cloudinary.module';
     BitacoraModule,
     // Para subir la evidencia opcional a Cloudinary.
     CloudinaryModule,
+    // Para crear automáticamente la labor de un reporte manual.
+    LaboresAdicionalesModule,
   ],
   controllers: [ReportesFontaneroController],
   providers: [ReportesFontaneroService],

@@ -14,6 +14,7 @@ describe('ReportesFontaneroService', () => {
     registrarCambioEstado: jest.Mock;
   };
   let cloudinaryService: { subirArchivo: jest.Mock; eliminarArchivo: jest.Mock };
+  let laboresService: { crearDesdeReporte: jest.Mock };
   let empleadoRepository: any;
 
   const fontanero = { id: 4, nombre: 'Luis Fontanero', usuario: { id: 9 } };
@@ -88,6 +89,12 @@ describe('ReportesFontaneroService', () => {
       eliminarArchivo: jest.fn(() => Promise.resolve()),
     };
 
+    laboresService = {
+      crearDesdeReporte: jest.fn(() =>
+        Promise.resolve({ id: 50, empleado_id: 4 }),
+      ),
+    };
+
     empleadoRepository = {
       findOne: jest.fn(({ where }: any) =>
         Promise.resolve(where?.usuario?.id === 9 ? fontanero : null),
@@ -134,6 +141,7 @@ describe('ReportesFontaneroService', () => {
       bitacoraService as any,
       dataSourceFalso(),
       cloudinaryService as any,
+      laboresService as any,
     );
   });
 
@@ -182,6 +190,13 @@ describe('ReportesFontaneroService', () => {
     expect(cloudinaryService.subirArchivo).toHaveBeenCalled();
     expect(reportes[0].evidencia_url).toBe('https://cdn.test/evidencia.jpg');
     expect(reportes[0].evidencia_nombre).toBe('foto.jpg');
+  });
+
+  it('crea una labor adicional cuando el reporte es manual (sin avería ni labor)', async () => {
+    await service.crear(dtoBase as any, usuarioFontanero);
+
+    expect(laboresService.crearDesdeReporte).toHaveBeenCalled();
+    expect(reportes[0].labor_id).toBe(50);
   });
 
   it('reenvía sobre el reporte rechazado en vez de crear uno nuevo', async () => {

@@ -19,6 +19,7 @@ import { EstadoRevisionReporte } from './entities/reporte-fontanero.enums';
 import { Empleado } from '../empleados/entities/empleado.entity';
 import { Averia } from '../averias/entities/averia.entity';
 import { LaborAdicional } from '../labores-adicionales/entities/labor-adicional.entity';
+import { LaboresAdicionalesService } from '../labores-adicionales/labores-adicionales.service';
 import { User } from '../auth/entities/user.entity';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { ModuloBitacora, AccionBitacora } from '../bitacora/entities/bitacora.enums';
@@ -47,6 +48,7 @@ export class ReportesFontaneroService {
     private readonly bitacoraService: BitacoraService,
     private readonly dataSource: DataSource,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly laboresService: LaboresAdicionalesService,
   ) {}
 
   // El fontanero que firma el reporte sale del usuario autenticado, nunca del
@@ -129,6 +131,21 @@ export class ReportesFontaneroService {
       ? await this.cloudinaryService.subirArchivo(evidencia, CARPETA_EVIDENCIA)
       : null;
 
+    // Reporte manual (sin avería ni labor): se registra también como una labor
+    // adicional en estado "En revisión" para que aparezca en "Otros
+    // mantenimientos". La revisión del reporte la deja Finalizado (aprobado) o
+    // En proceso/devuelta (rechazado).
+    const esManual = !dto.averiaId && !dto.laborId;
+    const laborAutoCreada = esManual
+      ? await this.laboresService.crearDesdeReporte({
+          tipoActividad: dto.tipoActividad,
+          descripcion: dto.descripcion,
+          empleadoId: empleado.id,
+          creadoPorId: user.id,
+        })
+      : null;
+    const laborIdFinal = dto.laborId ?? laborAutoCreada?.id ?? null;
+
     // Si este trabajo ya tenía un reporte RECHAZADO del mismo fontanero, se
     // reutiliza esa fila en vez de crear una nueva: el reenvío "cae sobre" el
     // reporte anterior y no se acumulan duplicados.
@@ -158,7 +175,7 @@ export class ReportesFontaneroService {
         reporteAnterior.tiempo_minutos = dto.tiempoMinutos;
         reporteAnterior.materiales_texto = materialesTexto;
         reporteAnterior.averia_id = dto.averiaId ?? null;
-        reporteAnterior.labor_id = dto.laborId ?? null;
+        reporteAnterior.labor_id = laborIdFinal;
         if (evidenciaSubida) {
           reporteAnterior.evidencia_url = evidenciaSubida.url;
           reporteAnterior.evidencia_public_id = evidenciaSubida.publicId;
@@ -187,7 +204,7 @@ export class ReportesFontaneroService {
               fecha_trabajo: dto.fechaTrabajo,
               tiempo_minutos: dto.tiempoMinutos,
               averia_id: dto.averiaId ?? null,
-              labor_id: dto.laborId ?? null,
+              labor_id: laborIdFinal,
               materiales_texto: materialesTexto,
               evidencia_url: evidenciaSubida?.url ?? null,
               evidencia_public_id: evidenciaSubida?.publicId ?? null,
@@ -202,6 +219,11 @@ export class ReportesFontaneroService {
     } catch (error) {
       if (evidenciaSubida) {
         await this.cloudinaryService.eliminarArchivo(evidenciaSubida.publicId);
+      }
+      // Si el reporte no se pudo guardar, la labor creada automáticamente
+      // quedaría huérfana: se elimina.
+      if (laborAutoCreada) {
+        await this.dataSource.manager.remove(LaborAdicional, laborAutoCreada);
       }
       throw error;
     }
