@@ -26,14 +26,16 @@ export class Averia {
   @Column({
     type: 'enum',
     enum: [
+      'Fuga en vía pública',
+      'Fuga en domicilio',
+      'Falta de presión / sin agua',
+      'Medidor dañado',
+      'Otro',
       'Fuga de agua',
       'Tubería rota',
-      'Falta de presión / sin agua',
       'Contador dañado',
       'Fuga en la vía pública',
-      'Otro',
       'Fuga',
-      'Medidor dañado',
     ],
   })
   tipo_averia: string;

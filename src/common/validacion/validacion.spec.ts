@@ -147,6 +147,20 @@ describe('DTOs validan por su cuenta (sin depender del frontend)', () => {
     ).toEqual(['cedula_reportante', 'nombre_reportante', 'tipo_averia']);
   });
 
+  it('avería pública: acepta tipos vigentes del catálogo (Fuga en vía pública, Fuga en domicilio, Medidor dañado)', async () => {
+    for (const tipo of ['Fuga en vía pública', 'Fuga en domicilio', 'Medidor dañado']) {
+      expect(
+        await camposConError(CreateAveriaDto, {
+          tipo_averia: tipo,
+          descripcion: 'Fuga grande frente a la escuela comunal',
+          cedula_reportante: '1-0234-0567',
+          nombre_reportante: 'Ana',
+          apellido1_reportante: 'Mora',
+        }),
+      ).toEqual([]);
+    }
+  });
+
   it('cambio de propietario: valida cédula y teléfono del nuevo propietario', async () => {
     expect(
       await camposConError(CrearSolicitudCambioPropietarioDto, {
