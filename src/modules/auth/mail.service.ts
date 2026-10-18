@@ -775,6 +775,8 @@ export class MailService {
       codigo: string;
       estadoResultado: 'Aprobada' | 'Rechazada';
       motivo?: string | null;
+      // Documento de la solicitud aprobada, firmado por la ASADA.
+      adjunto?: { nombre: string; contenido: Buffer };
     },
   ): Promise<void> {
     const esAprobada = datos.estadoResultado === 'Aprobada';
@@ -795,6 +797,13 @@ export class MailService {
         <div style="background-color:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:20px 0;">
           <h3 style="margin:0 0 10px;font-size:14px;color:#166534;font-weight:bold;">Siguientes pasos obligatorios para su conexión:</h3>
           <ol style="margin:0;padding-left:20px;color:#374151;font-size:14px;line-height:1.6;">
+            ${
+              datos.adjunto
+                ? `<li style="margin-bottom:8px;">
+              <strong>Documento de su solicitud aprobada:</strong> Adjuntamos a este correo el documento firmado por la ASADA. Descárguelo y consérvelo, lo necesitará para iniciar la segunda etapa del trámite.
+            </li>`
+                : ''
+            }
             <li style="margin-bottom:8px;">
               <strong>Permisos de Construcción y Municipales:</strong> Gestione los permisos correspondientes ante el gobierno local (Municipalidad) y Ministerio de Salud.
             </li>
@@ -836,6 +845,9 @@ export class MailService {
       subject: `${this.nombreAsada} — Solicitud ${datos.codigo} ${
         esAprobada ? 'aprobada' : 'rechazada'
       }`,
+      attachments: datos.adjunto
+        ? [{ filename: datos.adjunto.nombre, content: datos.adjunto.contenido }]
+        : undefined,
       html: this.plantillaBase({
         titulo,
         cuerpoHtml,

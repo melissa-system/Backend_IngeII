@@ -10,9 +10,10 @@ import {
   UseGuards,
   UseInterceptors,
   UploadedFiles,
+  UploadedFile,
   BadRequestException,
 } from '@nestjs/common';
-import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { SolicitudesService } from '../services/solicitudes.service';
 import { CreateSolicitudPajaAguaDto } from '../dto/create-solicitud-paja-agua.dto';
@@ -37,6 +38,13 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
 // Campos de archivo que son fotos de un documento de identidad: llevan una
 // regla de formato más estricta que el resto (ver fileFilter abajo).
 const CAMPOS_FOTO_IDENTIFICACION = ['cedulaFrente', 'cedulaDorso'];
+
+// Documento firmado que se adjunta al aprobar: PDF o Word.
+const MIME_TYPES_DOCUMENTO_APROBACION = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+];
 
 @Controller('solicitudes')
 export class SolicitudesController {
@@ -137,11 +145,35 @@ export class SolicitudesController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Patch(':id/estado')
   @Roles(Role.ADMIN)
+  @UseInterceptors(
+    FileInterceptor('documentoAprobacion', {
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_FILE_SIZE },
+      fileFilter: (_req, file, cb) => {
+        if (!MIME_TYPES_DOCUMENTO_APROBACION.includes(file.mimetype)) {
+          cb(
+            new BadRequestException(
+              'El documento de aprobación debe ser un PDF o un archivo de Word',
+            ),
+            false,
+          );
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
   cambiarEstado(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ActualizarEstadoSolicitudPajaAguaDto,
     @Request() req: { user: RequestUser },
+    @UploadedFile() documentoAprobacion?: Express.Multer.File,
   ) {
-    return this.solicitudesService.cambiarEstado(id, dto, req.user);
+    return this.solicitudesService.cambiarEstado(
+      id,
+      dto,
+      req.user,
+      documentoAprobacion,
+    );
   }
 }

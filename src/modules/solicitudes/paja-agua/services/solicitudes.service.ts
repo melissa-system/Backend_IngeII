@@ -243,7 +243,16 @@ export class SolicitudesService {
     id: number,
     dto: ActualizarEstadoSolicitudPajaAguaDto,
     user: RequestUser,
+    documentoAprobacion?: Express.Multer.File,
   ): Promise<SolicitudPajaAgua> {
+    // Al aprobar es obligatorio adjuntar el documento firmado por la ASADA:
+    // se envía al solicitante para que lo descargue e inicie la segunda etapa.
+    if (dto.estado === 'Aprobada' && !documentoAprobacion) {
+      throw new BadRequestException(
+        'Debes adjuntar el documento de la solicitud aprobada (firmado por la ASADA) para poder aprobarla',
+      );
+    }
+
     const solicitud = await this.solicitudRepository.findOne({
       where: { id },
       relations: { empleado: true, abonado: true },
@@ -264,6 +273,17 @@ export class SolicitudesService {
     });
     if (empleado) {
       solicitud.empleado = empleado;
+    }
+
+    // Se sube antes de cambiar el estado: si falla, la solicitud sigue
+    // pendiente y el administrador puede reintentar.
+    if (dto.estado === 'Aprobada' && documentoAprobacion) {
+      const subido = await this.cloudinaryService.subirArchivo(
+        documentoAprobacion,
+        CARPETA_CLOUDINARY,
+      );
+      solicitud.documento_aprobacion_path = subido.url;
+      solicitud.documento_aprobacion_public_id = subido.publicId;
     }
 
     solicitud.estado = dto.estado;
@@ -313,6 +333,13 @@ export class SolicitudesService {
             codigo: solicitud.codigo_solicitud,
             estadoResultado: dto.estado as 'Aprobada' | 'Rechazada',
             motivo: solicitud.motivo_rechazo,
+            adjunto:
+              dto.estado === 'Aprobada' && documentoAprobacion
+                ? {
+                    nombre: documentoAprobacion.originalname,
+                    contenido: documentoAprobacion.buffer,
+                  }
+                : undefined,
           }),
       });
       await registrarNotificacion(
