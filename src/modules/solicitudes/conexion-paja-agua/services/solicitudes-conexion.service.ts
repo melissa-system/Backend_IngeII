@@ -80,7 +80,7 @@ export interface SolicitudConexionResponse {
   folio_real: string | null;
   plano_catastro: string | null;
   plano_agrimensura: string | null;
-  numero_disponibilidad: string;
+  numero_disponibilidad: string | null;
   numero_nis: string | null;
   servicio_solicitado: string;
   tipo_tramite: string;
@@ -368,7 +368,7 @@ export class SolicitudesConexionService {
         folio_real: dto.folioReal ?? null,
         plano_catastro: dto.planoCatastro ?? null,
         plano_agrimensura: dto.planoAgrimensura ?? null,
-        numero_disponibilidad: dto.numeroDisponibilidad,
+        numero_disponibilidad: dto.numeroDisponibilidad ?? null,
         numero_nis: dto.numeroNis ?? null,
         servicio_solicitado: dto.servicioSolicitado,
         tipo_tramite: dto.tipoTramite,

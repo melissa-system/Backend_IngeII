@@ -105,9 +105,10 @@ export class CrearSolicitudConexionDto {
   @IsString()
   planoAgrimensura?: string;
 
-  @IsNotEmpty({ message: 'El número de disponibilidad es obligatorio' })
+  // Lo completa el administrador al gestionar la solicitud, no el solicitante.
+  @IsOptional()
   @IsString()
-  numeroDisponibilidad: string;
+  numeroDisponibilidad?: string;
 
   @IsOptional()
   @IsString()

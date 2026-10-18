@@ -72,8 +72,8 @@ export class SolicitudConexionPajaAgua {
   @Column({ type: 'varchar', length: 100, nullable: true })
   plano_agrimensura: string | null;
 
-  @Column({ type: 'varchar', length: 100 })
-  numero_disponibilidad: string;
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  numero_disponibilidad: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   numero_nis: string | null;
