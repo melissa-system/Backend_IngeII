@@ -1,4 +1,9 @@
 import {
+  debeNotificar,
+  notificarResultado,
+  registrarNotificacion,
+} from '../../common/notificacion-resultado';
+import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -326,23 +331,25 @@ export class SolicitudesCambioMedidorService {
     );
 
     // Notificación por correo electrónico
-    if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {
-      try {
-        await this.mailService.enviarCorreoResultadoSolicitud(
-          solicitud.abonado.correo,
-          {
+    if (
+      debeNotificar(estadoAnterior, dto.estado, solicitud.notificacion_estado)
+    ) {
+      const notificacion = await notificarResultado({
+        destinatario: solicitud.abonado.correo,
+        codigo: solicitud.codigo_solicitud,
+        enviar: (destinatario) =>
+          this.mailService.enviarCorreoResultadoSolicitud(destinatario, {
             tipo: 'Cambio o reparación de medidor',
             codigo: solicitud.codigo_solicitud,
             estadoResultado: dto.estado as 'aprobado' | 'rechazado',
             motivo: detalle.motivo_rechazo ?? null,
-          },
-        );
-      } catch (error) {
-        console.error(
-          `Error al notificar por correo solicitud ${solicitud.codigo_solicitud}:`,
-          error,
-        );
-      }
+          }),
+      });
+      await registrarNotificacion(
+        this.solicitudRepository,
+        solicitud.id,
+        notificacion,
+      );
     }
 
     return this.cargarCompleta(guardada.id);

@@ -1,4 +1,9 @@
 import {
+  debeNotificar,
+  notificarResultado,
+  registrarNotificacion,
+} from '../../common/notificacion-resultado';
+import {
   Injectable,
   ConflictException,
   NotFoundException,
@@ -297,19 +302,25 @@ export class SolicitudesService {
 
     // Notificar por correo al solicitante. Aislado en try/catch: el estado
     // ya se guardó, un fallo de SMTP no debe tumbar la respuesta.
-    if (dto.estado === 'Aprobada' || dto.estado === 'Rechazada') {
-      try {
-        await this.mailService.enviarCorreoResultadoPajaAgua(solicitud.correo, {
-          codigo: solicitud.codigo_solicitud,
-          estadoResultado: dto.estado as 'Aprobada' | 'Rechazada',
-          motivo: solicitud.motivo_rechazo,
-        });
-      } catch (error) {
-        console.error(
-          `No se pudo notificar por correo el resultado de la solicitud ${solicitud.codigo_solicitud}:`,
-          error,
-        );
-      }
+    if (
+      debeNotificar(estadoAnterior, dto.estado, solicitud.notificacion_estado)
+    ) {
+      const notificacion = await notificarResultado({
+        destinatario: solicitud.correo,
+        codigo: solicitud.codigo_solicitud,
+        enviar: (destinatario) =>
+          this.mailService.enviarCorreoResultadoPajaAgua(destinatario, {
+            codigo: solicitud.codigo_solicitud,
+            estadoResultado: dto.estado as 'Aprobada' | 'Rechazada',
+            motivo: solicitud.motivo_rechazo,
+          }),
+      });
+      await registrarNotificacion(
+        this.solicitudRepository,
+        solicitud.id,
+        notificacion,
+      );
+      Object.assign(guardada, notificacion);
     }
 
     return guardada;

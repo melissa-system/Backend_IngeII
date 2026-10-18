@@ -52,6 +52,18 @@ export class Solicitud {
   @JoinColumn({ name: 'id_empleado' })
   empleado: Empleado | null;
 
+  // Trazabilidad de la notificación por correo al solicitante cuando la
+  // solicitud se aprueba o rechaza: 'enviada', 'fallida' u 'omitida' (el
+  // solicitante no tenía un correo válido). Null = aún no se notificó.
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  notificacion_estado: 'enviada' | 'fallida' | 'omitida' | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  notificacion_fecha: Date | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  notificacion_error: string | null;
+
   @CreateDateColumn()
   fecha_creacion: Date;
 

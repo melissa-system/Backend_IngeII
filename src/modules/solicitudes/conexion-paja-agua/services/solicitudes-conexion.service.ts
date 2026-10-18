@@ -1,4 +1,9 @@
 import {
+  debeNotificar,
+  notificarResultado,
+  registrarNotificacion,
+} from '../../common/notificacion-resultado';
+import {
   BadRequestException,
   ConflictException,
   Injectable,
@@ -117,9 +122,7 @@ export class SolicitudesConexionService {
     });
   }
 
-  private buscarEmpleadoDeUsuario(
-    usuarioId: number,
-  ): Promise<Empleado | null> {
+  private buscarEmpleadoDeUsuario(usuarioId: number): Promise<Empleado | null> {
     return this.empleadoRepository.findOne({
       where: { usuario: { id: usuarioId } },
     });
@@ -159,13 +162,15 @@ export class SolicitudesConexionService {
         detalle.solicitudPajaAgua?.codigo_solicitud ?? '',
       tipo_persona: detalle.solicitudPajaAgua?.tipo_persona ?? 'fisica',
       nombre_solicitante: detalle.solicitudPajaAgua?.nombre_solicitante ?? '',
-      identificacion_solicitante: detalle.solicitudPajaAgua?.identificacion ?? '',
+      identificacion_solicitante:
+        detalle.solicitudPajaAgua?.identificacion ?? '',
       telefono_solicitante: detalle.solicitudPajaAgua?.telefono ?? '',
       provincia: detalle.solicitudPajaAgua?.provincia ?? null,
       canton: detalle.solicitudPajaAgua?.canton ?? null,
       distrito: detalle.solicitudPajaAgua?.distrito ?? null,
       direccion_inmueble: detalle.solicitudPajaAgua?.direccion ?? '',
-      naturaleza_inmueble: detalle.solicitudPajaAgua?.naturaleza_inmueble ?? null,
+      naturaleza_inmueble:
+        detalle.solicitudPajaAgua?.naturaleza_inmueble ?? null,
       calidad_titular: detalle.solicitudPajaAgua?.calidad_titular ?? null,
       medio_notificacion_principal: detalle.medio_notificacion_principal,
       valor_notificacion_principal: detalle.valor_notificacion_principal,
@@ -479,23 +484,26 @@ export class SolicitudesConexionService {
       dto.motivoRechazo?.trim() || 'Actualización de estado',
     );
 
-    if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {
-      try {
-        await this.mailService.enviarCorreoResultadoSolicitud(
-          solicitud.abonado.correo,
-          {
+    if (
+      debeNotificar(estadoAnterior, dto.estado, solicitud.notificacion_estado)
+    ) {
+      const notificacion = await notificarResultado({
+        destinatario: solicitud.abonado.correo,
+        codigo: solicitud.codigo_solicitud,
+        enviar: (destinatario) =>
+          this.mailService.enviarCorreoResultadoSolicitud(destinatario, {
             tipo: 'Solicitud de conexión de servicio',
             codigo: solicitud.codigo_solicitud,
             estadoResultado: dto.estado as 'aprobado' | 'rechazado',
             motivo: detalle.motivo_rechazo ?? null,
-          },
-        );
-      } catch (error) {
-        console.error(
-          `Error al notificar por correo solicitud ${solicitud.codigo_solicitud}:`,
-          error,
-        );
-      }
+          }),
+      });
+      await registrarNotificacion(
+        this.solicitudRepository,
+        solicitud.id,
+        notificacion,
+      );
+      Object.assign(guardada, notificacion);
     }
 
     return this.cargarCompleta(guardada.id);

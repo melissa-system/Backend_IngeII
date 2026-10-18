@@ -1,4 +1,9 @@
 import {
+  debeNotificar,
+  notificarResultado,
+  registrarNotificacion,
+} from '../../common/notificacion-resultado';
+import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -332,23 +337,25 @@ export class SolicitudesOtroService {
     // Notificar por correo al abonado el resultado y el comentario del
     // administrador. Aislado en try/catch: el estado ya se guardó, un fallo
     // de SMTP no debe tumbar la respuesta.
-    if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {
-      try {
-        await this.mailService.enviarCorreoResultadoOtro(
-          solicitud.abonado.correo,
-          {
+    if (
+      debeNotificar(estadoAnterior, dto.estado, solicitud.notificacion_estado)
+    ) {
+      const notificacion = await notificarResultado({
+        destinatario: solicitud.abonado.correo,
+        codigo: solicitud.codigo_solicitud,
+        enviar: (destinatario) =>
+          this.mailService.enviarCorreoResultadoOtro(destinatario, {
             codigo: solicitud.codigo_solicitud,
             estadoResultado: dto.estado as 'aprobado' | 'rechazado',
             asunto: detalle.asunto,
             comentario: detalle.motivo_rechazo ?? null,
-          },
-        );
-      } catch (error) {
-        console.error(
-          `No se pudo notificar por correo el resultado de la solicitud ${solicitud.codigo_solicitud}:`,
-          error,
-        );
-      }
+          }),
+      });
+      await registrarNotificacion(
+        this.solicitudRepository,
+        solicitud.id,
+        notificacion,
+      );
     }
 
     return this.cargarCompleta(guardada.id);

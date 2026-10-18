@@ -1,4 +1,9 @@
 import {
+  debeNotificar,
+  notificarResultado,
+  registrarNotificacion,
+} from '../../common/notificacion-resultado';
+import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -260,7 +265,8 @@ export class CambioRepresentanteService {
       representante_anterior_cedula: representanteAnteriorCedula,
       representante_nuevo_nombre: dto.representanteNuevoNombre.trim(),
       representante_nuevo_cedula: dto.representanteNuevoCedula.trim(),
-      representante_nuevo_direccion: dto.representanteNuevoDireccion?.trim() ?? null,
+      representante_nuevo_direccion:
+        dto.representanteNuevoDireccion?.trim() ?? null,
       representante_nuevo_correo: dto.representanteNuevoCorreo?.trim() || null,
       representante_nuevo_telefono:
         dto.representanteNuevoTelefono?.trim() || null,
@@ -434,7 +440,8 @@ export class CambioRepresentanteService {
       juridico.nombre_representante_legal = detalle.representante_nuevo_nombre;
       juridico.cedula_representante = detalle.representante_nuevo_cedula;
       if (detalle.representante_nuevo_direccion) {
-        juridico.representante_direccion = detalle.representante_nuevo_direccion;
+        juridico.representante_direccion =
+          detalle.representante_nuevo_direccion;
       }
       juridico.representante_correo = detalle.representante_nuevo_correo;
       if (detalle.representante_nuevo_telefono) {
@@ -461,25 +468,30 @@ export class CambioRepresentanteService {
     // Notificar por correo al abonado y al nuevo representante el resultado
     // de la solicitud. Aislado en try/catch: el estado ya se guardó, un fallo
     // de SMTP no debe tumbar la respuesta.
-    if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {
-      try {
-        await this.mailService.enviarCorreoResultadoCambioRepresentante(
-          solicitud.abonado.correo,
-          detalle.representante_nuevo_correo,
-          {
-            tipo: 'Cambio de representante',
-            codigo: solicitud.codigo_solicitud,
-            estadoResultado: dto.estado as 'aprobado' | 'rechazado',
-            motivo: detalle.motivo_rechazo ?? null,
-            nombreNuevoRepresentante: detalle.representante_nuevo_nombre,
-          },
-        );
-      } catch (error) {
-        console.error(
-          `No se pudo notificar por correo el resultado de la solicitud ${solicitud.codigo_solicitud}:`,
-          error,
-        );
-      }
+    if (
+      debeNotificar(estadoAnterior, dto.estado, solicitud.notificacion_estado)
+    ) {
+      const notificacion = await notificarResultado({
+        destinatario: solicitud.abonado.correo,
+        codigo: solicitud.codigo_solicitud,
+        enviar: (destinatario) =>
+          this.mailService.enviarCorreoResultadoCambioRepresentante(
+            destinatario,
+            detalle.representante_nuevo_correo,
+            {
+              tipo: 'Cambio de representante',
+              codigo: solicitud.codigo_solicitud,
+              estadoResultado: dto.estado as 'aprobado' | 'rechazado',
+              motivo: detalle.motivo_rechazo ?? null,
+              nombreNuevoRepresentante: detalle.representante_nuevo_nombre,
+            },
+          ),
+      });
+      await registrarNotificacion(
+        this.solicitudRepository,
+        solicitud.id,
+        notificacion,
+      );
     }
 
     return this.cargarCompleta(guardada.id);
