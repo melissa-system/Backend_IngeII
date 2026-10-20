@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { LaborAdicional } from './entities/labor-adicional.entity';
+import type { DatosSolicitudLabor } from './entities/labor-adicional.entity';
 import { CrearLaborDto } from './dto/crear-labor.dto';
 import { ActualizarLaborDto } from './dto/actualizar-labor.dto';
 import { FiltrarLaboresDto } from './dto/filtrar-labores.dto';
@@ -126,7 +127,7 @@ export class LaboresAdicionalesService {
 
     return this.laborRepository.find({
       where,
-      relations: { empleado: true },
+      relations: { empleado: true, solicitud: true },
       order: { fecha_creacion: 'DESC', id: 'DESC' },
     });
   }
@@ -134,12 +135,77 @@ export class LaboresAdicionalesService {
   async findOne(id: number): Promise<LaborAdicional> {
     const labor = await this.laborRepository.findOne({
       where: { id },
-      relations: { empleado: true },
+      relations: { empleado: true, solicitud: true },
     });
     if (!labor) {
       throw new NotFoundException(`La labor con el ID ${id} no fue encontrada`);
     }
     return labor;
+  }
+
+  // Labores generadas por una solicitud aprobada. Se usan para mostrar el
+  // estado del trabajo operativo en el detalle de la solicitud sin exponer el
+  // listado completo de "Otros mantenimientos" (que es solo de administración).
+  async obtenerPorSolicitud(
+    idSolicitud: number,
+  ): Promise<LaborAdicional | null> {
+    return this.laborRepository.findOne({
+      where: { id_solicitud: idSolicitud },
+      relations: { empleado: true, solicitud: true },
+    });
+  }
+
+  async obtenerPorSolicitudes(ids: number[]): Promise<LaborAdicional[]> {
+    if (ids.length === 0) return [];
+    return this.laborRepository.find({
+      where: { id_solicitud: In(ids) },
+      relations: { empleado: true, solicitud: true },
+    });
+  }
+
+  // Crea la labor operativa de una solicitud recién aprobada (conexión de
+  // servicio o cambio de medidor). Queda "Pendiente" y sin fontanero para que
+  // la administración la asigne desde "Otros mantenimientos".
+  //
+  // Es idempotente: si la solicitud ya tiene una labor, devuelve esa en vez de
+  // duplicarla (por ejemplo si se reintenta el cambio de estado).
+  async crearDesdeSolicitud(datos: {
+    idSolicitud: number;
+    tipoActividad: TipoActividad;
+    descripcion: string;
+    datos: DatosSolicitudLabor;
+    creadoPorId?: number;
+  }): Promise<LaborAdicional> {
+    const existente = await this.laborRepository.findOne({
+      where: { id_solicitud: datos.idSolicitud },
+    });
+    if (existente) return this.findOne(existente.id);
+
+    const creadoPor = datos.creadoPorId
+      ? await this.userRepository.findOneBy({ id: datos.creadoPorId })
+      : null;
+
+    const labor = this.laborRepository.create({
+      codigo_labor: this.generarCodigo(),
+      tipo_actividad: datos.tipoActividad,
+      descripcion: datos.descripcion.trim(),
+      estado: 'Pendiente',
+      empleado: null,
+      origen: 'solicitud',
+      id_solicitud: datos.idSolicitud,
+      datos_solicitud: datos.datos,
+      creado_por: creadoPor,
+    });
+    const guardada = await this.laborRepository.save(labor);
+
+    await this.bitacoraService.registrarCreacion(
+      ModuloBitacora.LABORES_ADICIONALES,
+      guardada.id,
+      await this.autorDe(datos.creadoPorId),
+      `Se creó la labor ${guardada.codigo_labor} al aprobar la solicitud ${datos.datos.codigo_solicitud}.`,
+    );
+
+    return this.findOne(guardada.id);
   }
 
   async actualizar(

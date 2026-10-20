@@ -9,11 +9,33 @@ import {
 } from 'typeorm';
 import { Empleado } from '../../empleados/entities/empleado.entity';
 import { User } from '../../auth/entities/user.entity';
+import { Solicitud } from '../../solicitudes/common/entities/solicitud.entity';
 import { TipoActividad } from '../../reportes-fontanero/entities/reporte-fontanero.enums';
+
+// Resumen de los datos operativos de la solicitud que originó la labor. Se
+// guarda como copia (no se consulta en vivo) para que el fontanero vea a
+// dónde ir desde su propia bandeja, sin depender del módulo de solicitudes.
+export interface DatosSolicitudLabor {
+  codigo_solicitud: string;
+  tipo_solicitud: string;
+  abonado: {
+    nombre: string;
+    numero_abonado: string;
+    cedula: string;
+    telefono: string;
+  };
+  direccion: string;
+  numero_nis: string | null;
+}
 
 // Labor adicional creada por la administración (reparación, instalación,
 // mantenimiento u otro) y asignada a un fontanero. Comparte el mismo flujo de
 // gestión que una avería: cronómetro, reporte y revisión.
+//
+// También puede generarse automáticamente al aprobar una solicitud de
+// conexión de servicio o de cambio de medidor (origen = 'solicitud'): en ese
+// caso queda pendiente y sin fontanero, esperando que la administración la
+// asigne.
 @Entity('labores_adicionales')
 @Index(['estado'])
 @Index(['fecha_creacion'])
@@ -29,6 +51,28 @@ export class LaborAdicional {
 
   @Column({ type: 'text' })
   descripcion: string;
+
+  // De dónde salió la labor: creada a mano por la administración o generada
+  // al aprobar una solicitud. Las labores anteriores quedan como 'manual'.
+  @Column({
+    type: 'enum',
+    enum: ['manual', 'solicitud'],
+    default: 'manual',
+  })
+  origen: 'manual' | 'solicitud';
+
+  // Solicitud aprobada que originó la labor (solo si origen = 'solicitud').
+  @ManyToOne(() => Solicitud, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'id_solicitud' })
+  solicitud: Solicitud | null;
+
+  @Column({ type: 'int', nullable: true })
+  id_solicitud: number | null;
+
+  // Copia de abonado, dirección y NIS de la solicitud, para mostrarla en la
+  // bandeja del fontanero y en el detalle de la labor.
+  @Column({ type: 'json', nullable: true })
+  datos_solicitud: DatosSolicitudLabor | null;
 
   @Column({
     type: 'enum',

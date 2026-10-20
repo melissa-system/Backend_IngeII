@@ -27,10 +27,34 @@ import { MailService } from '../../../auth/mail.service';
 import { BitacoraService } from '../../../bitacora/bitacora.service';
 import { ModuloBitacora } from '../../../bitacora/entities/bitacora.enums';
 import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
+import { LaboresAdicionalesService } from '../../../labores-adicionales/labores-adicionales.service';
+import { LaborAdicional } from '../../../labores-adicionales/entities/labor-adicional.entity';
+import { TipoActividad } from '../../../reportes-fontanero/entities/reporte-fontanero.enums';
+import {
+  type LaborDeSolicitud,
+  resumirLabor,
+} from '../../common/labor-solicitud';
 
 export const TIPO_CONEXION_PAJA_AGUA = 'conexion_paja_agua';
 const CARPETA_CLOUDINARY = 'ASADA/solicitudes/conexion-paja-agua';
 const ESTADOS_FINALES = ['aprobado', 'rechazado'];
+
+// Etiquetas legibles para la descripción de la labor generada al aprobar.
+const ETIQUETA_TIPO_TRAMITE: Record<string, string> = {
+  nueva_conexion: 'Nueva conexión',
+  individualizacion: 'Individualización',
+  independizacion: 'Independización',
+  traslado: 'Traslado',
+  servicio_provisional_proyectos: 'Servicio provisional para proyectos',
+  cambio_diametro: 'Cambio de diámetro',
+  servicio_temporal: 'Servicio temporal',
+};
+
+const ETIQUETA_SERVICIO: Record<string, string> = {
+  agua_potable: 'Agua potable',
+  alcantarillado_sanitario: 'Alcantarillado sanitario',
+  ambos: 'Ambos',
+};
 
 export interface SolicitudConexionDisponible {
   id: number;
@@ -92,6 +116,8 @@ export interface SolicitudConexionResponse {
   adjuntos: AdjuntoConexion[];
   motivo_rechazo: string | null;
   id_empleado: number | null;
+  // Labor generada en "Otros mantenimientos" al aprobar la solicitud.
+  labor: LaborDeSolicitud | null;
   fecha_creacion: Date;
   fecha_actualizacion: Date;
 }
@@ -114,6 +140,7 @@ export class SolicitudesConexionService {
     private readonly cloudinaryService: CloudinaryService,
     private readonly mailService: MailService,
     private readonly bitacoraService: BitacoraService,
+    private readonly laboresService: LaboresAdicionalesService,
   ) {}
 
   private buscarAbonadoDeUsuario(usuarioId: number): Promise<Abonado | null> {
@@ -145,9 +172,31 @@ export class SolicitudesConexionService {
     }
   }
 
+  // Texto que verá el fontanero en su bandeja: trámite, abonado, dirección y
+  // NIS. El detalle estructurado viaja aparte, en datos_solicitud de la labor.
+  private descripcionLabor(
+    solicitud: Solicitud,
+    detalle: SolicitudConexionPajaAgua,
+    direccion: string,
+  ): string {
+    const tramite =
+      ETIQUETA_TIPO_TRAMITE[detalle.tipo_tramite] ?? detalle.tipo_tramite;
+    const servicio =
+      ETIQUETA_SERVICIO[detalle.servicio_solicitado] ??
+      detalle.servicio_solicitado;
+    const nis = detalle.numero_nis ? ` NIS: ${detalle.numero_nis}.` : '';
+    return (
+      `Conexión de servicio (${tramite} · ${servicio}) — ` +
+      `${solicitud.abonado.nombre} (${solicitud.abonado.numero_abonado}). ` +
+      `Dirección: ${direccion || 'sin dirección registrada'}.${nis} ` +
+      `Solicitud ${solicitud.codigo_solicitud}.`
+    );
+  }
+
   private construirRespuesta(
     solicitud: Solicitud,
     detalle: SolicitudConexionPajaAgua,
+    labor: LaborAdicional | null,
   ): SolicitudConexionResponse {
     return {
       id: solicitud.id,
@@ -191,6 +240,7 @@ export class SolicitudesConexionService {
       adjuntos: detalle.adjuntos ?? [],
       motivo_rechazo: detalle.motivo_rechazo,
       id_empleado: solicitud.empleado?.id ?? null,
+      labor: resumirLabor(labor),
       fecha_creacion: solicitud.fecha_creacion,
       fecha_actualizacion: solicitud.fecha_actualizacion,
     };
@@ -213,7 +263,8 @@ export class SolicitudesConexionService {
         'La solicitud no tiene detalle de conexión de servicio',
       );
     }
-    return this.construirRespuesta(solicitud, detalle);
+    const labor = await this.laboresService.obtenerPorSolicitud(solicitud.id);
+    return this.construirRespuesta(solicitud, detalle, labor);
   }
 
   // Solicitudes de paja de agua ya Aprobadas de este abonado que TODAVÍA no
@@ -426,9 +477,24 @@ export class SolicitudesConexionService {
       detalles.map((d) => [d.solicitud.id, d]),
     );
 
+    // Labores generadas (si la solicitud ya fue aprobada), en una sola
+    // consulta para no repetir por cada fila.
+    const labores = await this.laboresService.obtenerPorSolicitudes(ids);
+    const laborPorSolicitud = new Map(
+      labores
+        .filter((l) => l.id_solicitud !== null)
+        .map((l) => [l.id_solicitud as number, l]),
+    );
+
     return solicitudes
       .filter((s) => detallePorSolicitud.has(s.id))
-      .map((s) => this.construirRespuesta(s, detallePorSolicitud.get(s.id)!));
+      .map((s) =>
+        this.construirRespuesta(
+          s,
+          detallePorSolicitud.get(s.id)!,
+          laborPorSolicitud.get(s.id) ?? null,
+        ),
+      );
   }
 
   async cambiarEstado(
@@ -473,6 +539,38 @@ export class SolicitudesConexionService {
     const guardada = await this.solicitudRepository.save(solicitud);
     if (dto.estado === 'rechazado') {
       await this.detalleRepository.save(detalle);
+    }
+
+    // Al aprobar se genera el trabajo operativo: la conexión pasa a "Otros
+    // mantenimientos" como labor pendiente, sin fontanero, para que la
+    // administración la asigne. Best-effort: la aprobación ya quedó guardada.
+    if (dto.estado === 'aprobado') {
+      try {
+        const direccion = detalle.solicitudPajaAgua?.direccion ?? '';
+        await this.laboresService.crearDesdeSolicitud({
+          idSolicitud: guardada.id,
+          tipoActividad: TipoActividad.INSTALACION,
+          descripcion: this.descripcionLabor(guardada, detalle, direccion),
+          datos: {
+            codigo_solicitud: guardada.codigo_solicitud,
+            tipo_solicitud: TIPO_CONEXION_PAJA_AGUA,
+            abonado: {
+              nombre: guardada.abonado.nombre,
+              numero_abonado: guardada.abonado.numero_abonado,
+              cedula: guardada.abonado.cedula,
+              telefono: guardada.abonado.telefono,
+            },
+            direccion,
+            numero_nis: detalle.numero_nis ?? null,
+          },
+          creadoPorId: user.id,
+        });
+      } catch (error) {
+        console.error(
+          `No se pudo crear la labor de la solicitud ${guardada.codigo_solicitud}:`,
+          error,
+        );
+      }
     }
 
     await this.bitacoraService.registrarCambioEstado(
