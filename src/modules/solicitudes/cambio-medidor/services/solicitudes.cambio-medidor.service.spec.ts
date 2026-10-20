@@ -68,6 +68,7 @@ describe('SolicitudesCambioMedidorService', () => {
   let cloudinaryService: any;
   let mailService: any;
   let bitacoraService: any;
+  let laboresService: any;
 
   const abonadoPeticion = { id: 5, role: 'abonado' } as any;
   const adminPeticion = { id: 7, role: 'admin' } as any;
@@ -102,6 +103,13 @@ describe('SolicitudesCambioMedidorService', () => {
       registrarCreacion: jest.fn(() => Promise.resolve()),
       registrarCambioEstado: jest.fn(() => Promise.resolve()),
     };
+    laboresService = {
+      crearDesdeSolicitud: jest.fn(() =>
+        Promise.resolve({ id: 42, codigo_labor: 'LAB-2026-4242', estado: 'Pendiente' }),
+      ),
+      obtenerPorSolicitud: jest.fn(() => Promise.resolve(null)),
+      obtenerPorSolicitudes: jest.fn(() => Promise.resolve([])),
+    };
 
     service = new SolicitudesCambioMedidorService(
       solicitudes as any,
@@ -112,6 +120,7 @@ describe('SolicitudesCambioMedidorService', () => {
       cloudinaryService,
       mailService,
       bitacoraService,
+      laboresService,
     );
   });
 
@@ -210,6 +219,55 @@ describe('SolicitudesCambioMedidorService', () => {
         'ana@asada.test',
         expect.objectContaining({ codigo, estadoResultado: 'aprobado' }),
       );
+    });
+
+    it('aprobar genera la labor en Otros mantenimientos con los datos del abonado', async () => {
+      const id = await crearPendiente();
+      laboresService.obtenerPorSolicitud.mockResolvedValueOnce({
+        id: 42,
+        codigo_labor: 'LAB-2026-4242',
+        estado: 'Pendiente',
+      });
+
+      const r = await service.cambiarEstado(
+        id,
+        { estado: 'aprobado' },
+        adminPeticion,
+      );
+
+      expect(laboresService.crearDesdeSolicitud).toHaveBeenCalledWith(
+        expect.objectContaining({
+          idSolicitud: id,
+          tipoActividad: 'mantenimiento',
+          datos: expect.objectContaining({
+            direccion: dto.direccionExacta,
+            numero_nis: null,
+            abonado: expect.objectContaining({
+              nombre: 'Ana Rojas',
+              numero_abonado: 'ABN-0001',
+            }),
+          }),
+        }),
+      );
+      expect(r.labor).toEqual({
+        id: 42,
+        codigo_labor: 'LAB-2026-4242',
+        estado: 'Pendiente',
+      });
+    });
+
+    it('marcar en proceso o rechazar no generan labor', async () => {
+      const id = await crearPendiente();
+
+      await service.cambiarEstado(id, { estado: 'en_proceso' }, adminPeticion);
+      expect(laboresService.crearDesdeSolicitud).not.toHaveBeenCalled();
+
+      await service.cambiarEstado(
+        id,
+        { estado: 'rechazado', motivoRechazo: 'Falta la fotografía del medidor' },
+        adminPeticion,
+      );
+      expect(laboresService.crearDesdeSolicitud).not.toHaveBeenCalled();
     });
 
     it('si falla el correo, el cambio de estado y la auditoría se conservan', async () => {

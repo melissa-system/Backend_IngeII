@@ -49,6 +49,7 @@ import { AuthModule } from '../auth/auth.module';
 import { BitacoraModule } from '../bitacora/bitacora.module';
 import { RecaptchaModule } from '../../common/recaptcha/recaptcha.module';
 import { AbonadosModule } from '../abonados/abonados.module';
+import { LaboresAdicionalesModule } from '../labores-adicionales/labores-adicionales.module';
 
 @Module({
   // AuthModule se importa para poder inyectar MailService (notificación por
@@ -76,6 +77,7 @@ import { AbonadosModule } from '../abonados/abonados.module';
     AuthModule,
     BitacoraModule,
     AbonadosModule,
+    LaboresAdicionalesModule,
     RecaptchaModule,
   ],
   controllers: [
