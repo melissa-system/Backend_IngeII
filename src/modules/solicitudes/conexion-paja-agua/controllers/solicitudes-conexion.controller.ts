@@ -7,11 +7,13 @@ import {
   Patch,
   Post,
   Request,
+  UploadedFile,
   UploadedFiles,
+  BadRequestException,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { SolicitudesConexionService } from '../services/solicitudes-conexion.service';
 import { CrearSolicitudConexionDto } from '../dto/crear-solicitud-conexion.dto';
@@ -25,6 +27,13 @@ import {
   MAX_TAMANO_ARCHIVO_DEFAULT,
   multerFileFilterPermitido,
 } from '../../../../common/config/archivos-permitidos.config';
+
+// Documento firmado que se adjunta al aprobar: PDF o Word.
+const MIME_TYPES_DOCUMENTO_APROBACION = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+];
 
 // Segunda parte del trámite de paja de agua: la Solicitud de conexión de
 // servicio (formulario GNU-42-01-F1), disponible en el dashboard del Abonado
@@ -76,13 +85,34 @@ export class SolicitudesConexionController {
     return this.service.listar(req.user);
   }
 
+  // Al aprobar, el administrador/junta adjunta el documento de aprobación
+  // firmado por la ASADA (obligatorio); se envía por correo al solicitante.
   @Patch(':id/estado')
   @Roles(Role.ADMIN)
+  @UseInterceptors(
+    FileInterceptor('documentoAprobacion', {
+      storage: memoryStorage(),
+      limits: { fileSize: MAX_TAMANO_ARCHIVO_DEFAULT },
+      fileFilter: (_req, file, cb) => {
+        if (!MIME_TYPES_DOCUMENTO_APROBACION.includes(file.mimetype)) {
+          cb(
+            new BadRequestException(
+              'El documento de aprobación debe ser un PDF o un archivo de Word',
+            ),
+            false,
+          );
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
   cambiarEstado(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ActualizarEstadoSolicitudDto,
     @Request() req: { user: RequestUser },
+    @UploadedFile() documentoAprobacion?: Express.Multer.File,
   ) {
-    return this.service.cambiarEstado(id, dto, req.user);
+    return this.service.cambiarEstado(id, dto, req.user, documentoAprobacion);
   }
 }

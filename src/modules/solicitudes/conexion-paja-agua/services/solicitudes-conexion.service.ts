@@ -501,7 +501,15 @@ export class SolicitudesConexionService {
     id: number,
     dto: ActualizarEstadoSolicitudDto,
     user: RequestUser,
+    documentoAprobacion?: Express.Multer.File,
   ): Promise<SolicitudConexionResponse> {
+    // Al aprobar es obligatorio adjuntar el documento firmado por la ASADA.
+    if (dto.estado === 'aprobado' && !documentoAprobacion) {
+      throw new BadRequestException(
+        'Debes adjuntar el documento de aprobación (firmado por la ASADA) para poder aprobar la conexión',
+      );
+    }
+
     const solicitud = await this.solicitudRepository.findOne({
       where: { id, tipo_solicitud: TIPO_CONEXION_PAJA_AGUA },
       relations: { abonado: true, empleado: true },
@@ -531,13 +539,24 @@ export class SolicitudesConexionService {
       solicitud.empleado = empleado;
     }
 
+    // Se sube antes de cambiar el estado: si falla, la solicitud sigue
+    // pendiente y se puede reintentar.
+    if (dto.estado === 'aprobado' && documentoAprobacion) {
+      const subido = await this.cloudinaryService.subirArchivo(
+        documentoAprobacion,
+        CARPETA_CLOUDINARY,
+      );
+      detalle.documento_aprobacion_path = subido.url;
+      detalle.documento_aprobacion_public_id = subido.publicId;
+    }
+
     solicitud.estado = dto.estado;
     if (dto.estado === 'rechazado') {
       detalle.motivo_rechazo = dto.motivoRechazo?.trim() || null;
     }
 
     const guardada = await this.solicitudRepository.save(solicitud);
-    if (dto.estado === 'rechazado') {
+    if (dto.estado === 'rechazado' || dto.estado === 'aprobado') {
       await this.detalleRepository.save(detalle);
     }
 
@@ -594,6 +613,13 @@ export class SolicitudesConexionService {
             codigo: solicitud.codigo_solicitud,
             estadoResultado: dto.estado as 'aprobado' | 'rechazado',
             motivo: detalle.motivo_rechazo ?? null,
+            adjunto:
+              dto.estado === 'aprobado' && documentoAprobacion
+                ? {
+                    nombre: documentoAprobacion.originalname,
+                    contenido: documentoAprobacion.buffer,
+                  }
+                : undefined,
           }),
       });
       await registrarNotificacion(

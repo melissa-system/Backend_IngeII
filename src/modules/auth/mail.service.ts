@@ -434,6 +434,8 @@ export class MailService {
       codigo: string;
       estadoResultado: 'aprobado' | 'rechazado';
       motivo?: string | null;
+      // Documento de aprobación firmado por la ASADA (conexión de servicio).
+      adjunto?: { nombre: string; contenido: Buffer };
     },
   ): Promise<void> {
     const esAprobada = datos.estadoResultado === 'aprobado';
@@ -448,7 +450,13 @@ export class MailService {
     const mensajeResolucion = esAprobada
       ? `<p style="margin:0 0 16px;color:#166534;font-weight:600;">
           Su solicitud ha sido aprobada favorablemente. Los cambios correspondientes han sido actualizados en los registros de su servicio.
-        </p>`
+        </p>${
+          datos.adjunto
+            ? `<div style="background-color:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:20px 0;color:#374151;font-size:14px;line-height:1.6;">
+          <strong>Documento de aprobación:</strong> adjuntamos a este correo el documento firmado por la ASADA. Descárguelo y consérvelo como comprobante de la aprobación de su conexión de servicio.
+        </div>`
+            : ''
+        }`
       : `<p style="margin:0 0 16px;color:#991b1b;font-weight:600;">
           Su solicitud ha sido revisada y denegada por la administración.
         </p>
@@ -478,6 +486,9 @@ export class MailService {
       subject: esAprobada
         ? `${this.nombreAsada} — Solicitud ${datos.codigo} aprobada`
         : `${this.nombreAsada} — Solicitud ${datos.codigo} rechazada`,
+      attachments: datos.adjunto
+        ? [{ filename: datos.adjunto.nombre, content: datos.adjunto.contenido }]
+        : undefined,
       html: this.plantillaBase({
         titulo,
         cuerpoHtml,
