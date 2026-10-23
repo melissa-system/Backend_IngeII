@@ -15,7 +15,7 @@ import { ReporteFontanero } from './entities/reporte-fontanero.entity';
 import { CrearReporteFontaneroDto } from './dto/crear-reporte-fontanero.dto';
 import { FiltrarReportesFontaneroDto } from './dto/filtrar-reportes-fontanero.dto';
 import { RevisarReporteFontaneroDto } from './dto/revisar-reporte-fontanero.dto';
-import { EstadoRevisionReporte } from './entities/reporte-fontanero.enums';
+import { EstadoRevisionReporte, OrigenReporte } from './entities/reporte-fontanero.enums';
 import { Empleado } from '../empleados/entities/empleado.entity';
 import { Averia } from '../averias/entities/averia.entity';
 import { LaborAdicional } from '../labores-adicionales/entities/labor-adicional.entity';
@@ -176,6 +176,8 @@ export class ReportesFontaneroService {
         reporteAnterior.materiales_texto = materialesTexto;
         reporteAnterior.averia_id = dto.averiaId ?? null;
         reporteAnterior.labor_id = laborIdFinal;
+        // El origen no cambia al reenviar: el reporte sigue siendo del mismo
+        // trabajo (o sigue siendo un reporte no asignado).
         if (evidenciaSubida) {
           reporteAnterior.evidencia_url = evidenciaSubida.url;
           reporteAnterior.evidencia_public_id = evidenciaSubida.publicId;
@@ -200,6 +202,10 @@ export class ReportesFontaneroService {
             manager.create(ReporteFontanero, {
               empleado_id: empleado.id,
               tipo_actividad: dto.tipoActividad,
+              // Manual (sin avería ni labor) = reporte no asignado.
+              origen: esManual
+                ? OrigenReporte.NO_ASIGNADO
+                : OrigenReporte.ASIGNADO,
               descripcion: dto.descripcion.trim(),
               fecha_trabajo: dto.fechaTrabajo,
               tiempo_minutos: dto.tiempoMinutos,
@@ -301,6 +307,7 @@ export class ReportesFontaneroService {
     if (filtros.empleadoId) where.empleado_id = filtros.empleadoId;
     if (filtros.tipoActividad) where.tipo_actividad = filtros.tipoActividad;
     if (filtros.estadoRevision) where.estado_revision = filtros.estadoRevision;
+    if (filtros.origen) where.origen = filtros.origen;
 
     // fecha_trabajo es un DATE (solo día), así que el filtro compara textos
     // 'YYYY-MM-DD' y no hace falta ajustar horas ni zona horaria.

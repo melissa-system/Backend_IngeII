@@ -17,3 +17,11 @@ export enum EstadoRevisionReporte {
   APROBADO = 'Aprobado',
   RECHAZADO = 'Rechazado',
 }
+
+// Origen del reporte: si viene de un trabajo asignado por la administración
+// (avería o labor) o si el fontanero lo registró por su cuenta, sin trabajo.
+// Los reportes "no asignados" se marcan distinto en el panel administrativo.
+export enum OrigenReporte {
+  ASIGNADO = 'asignado',
+  NO_ASIGNADO = 'no_asignado',
+}

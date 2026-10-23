@@ -21,6 +21,7 @@ import {
 } from '../bitacora/entities/bitacora.enums';
 import type { RequestUser } from '../auth/strategies/jwt.strategy';
 import { formatearCedula } from '../../common/validacion/reglas-validacion';
+import { SolicitudesMaterialService } from '../solicitudes-material/solicitudes-material.service';
 
 export interface EstadisticasAveriasRespuesta {
   total: number;
@@ -43,6 +44,7 @@ export class AveriasService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     private readonly bitacoraService: BitacoraService,
+    private readonly solicitudesMaterialService: SolicitudesMaterialService,
   ) {}
 
   async create(dto: CreateAveriaDto): Promise<Averia> {
@@ -210,22 +212,28 @@ export class AveriasService {
     }
 
     if (dto.estado) {
-      const estadosValidos = ['Pendiente', 'En proceso', 'Finalizado'];
+      // "En proceso" es un estado automático: lo pone el sistema cuando la
+      // avería se asigna a un fontanero (o cuando el fontanero arranca la
+      // gestión). No se puede fijar a mano.
+      if (dto.estado === 'En proceso') {
+        throw new BadRequestException(
+          'El estado "En proceso" se asigna automáticamente al asignar un fontanero a la avería.',
+        );
+      }
+
+      const estadosValidos = ['Pendiente', 'Finalizado'];
       if (!estadosValidos.includes(dto.estado)) {
         throw new BadRequestException(
           `Estado inválido. Valores permitidos: ${estadosValidos.join(', ')}`,
         );
       }
 
-      // No se permite cambiar a "En proceso" o "Finalizado" sin un fontanero asignado.
-      const estadosQueRequierenFontanero = ['En proceso', 'Finalizado'];
-      if (estadosQueRequierenFontanero.includes(dto.estado)) {
+      // No se permite cambiar a "Finalizado" sin un fontanero asignado.
+      if (dto.estado === 'Finalizado') {
         const tieneFontanero = dto.empleado_id || averia.empleado;
         if (!tieneFontanero) {
           throw new BadRequestException(
-            'No se puede cambiar el estado a "' +
-              dto.estado +
-              '" sin antes asignar un fontanero a la avería.',
+            'No se puede cambiar el estado a "Finalizado" sin antes asignar un fontanero a la avería.',
           );
         }
       }
@@ -239,6 +247,25 @@ export class AveriasService {
         dto.observacion || `Estado cambiado: ${averia.estado} → ${dto.estado}`,
       );
       averia.estado = dto.estado;
+    }
+
+    // Al asignar un fontanero, la avería pasa sola a "En proceso". El
+    // fontanero la sigue viendo como "Pendiente" hasta que inicia la gestión
+    // (eso lo resuelve el frontend con gestion_iniciada_en).
+    if (
+      dto.empleado_id &&
+      averia.estado === 'Pendiente' &&
+      !averia.gestion_iniciada_en
+    ) {
+      await this.bitacoraService.registrarCambioEstado(
+        ModuloBitacora.AVERIAS,
+        id,
+        autor,
+        'Pendiente',
+        'En proceso',
+        'Asignación de fontanero: la avería pasa a "En proceso" automáticamente.',
+      );
+      averia.estado = 'En proceso';
     }
 
     await this.averiaRepository.save(averia);
@@ -285,6 +312,14 @@ export class AveriasService {
     if (averia.estado === 'Finalizado' || averia.estado === 'En revisión') {
       throw new BadRequestException(
         'Esta avería ya fue reportada o finalizada y no se puede volver a iniciar.',
+      );
+    }
+
+    // Si el fontanero pidió materiales y la administración todavía no
+    // respondió, no puede empezar: primero se aprueba (o rechaza) el pedido.
+    if (await this.solicitudesMaterialService.tienePendiente(averia.id, null)) {
+      throw new BadRequestException(
+        'Tenés una solicitud de materiales pendiente de aprobación. Esperá la respuesta de la administración para iniciar.',
       );
     }
 

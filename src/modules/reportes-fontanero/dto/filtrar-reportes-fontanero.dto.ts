@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsInt, IsOptional, Min } from 'class-validator';
 import {
   EstadoRevisionReporte,
+  OrigenReporte,
   TipoActividad,
 } from '../entities/reporte-fontanero.enums';
 
@@ -23,6 +24,13 @@ export class FiltrarReportesFontaneroDto {
     message: `El estado de revisión debe ser uno de: ${Object.values(EstadoRevisionReporte).join(', ')}`,
   })
   estadoRevision?: EstadoRevisionReporte;
+
+  // 'asignado' = viene de una avería/labor; 'no_asignado' = reporte suelto.
+  @IsOptional()
+  @IsEnum(OrigenReporte, {
+    message: `El origen debe ser uno de: ${Object.values(OrigenReporte).join(', ')}`,
+  })
+  origen?: OrigenReporte;
 
   @IsOptional()
   @IsDateString({}, { message: 'La fecha "desde" debe tener formato YYYY-MM-DD' })
