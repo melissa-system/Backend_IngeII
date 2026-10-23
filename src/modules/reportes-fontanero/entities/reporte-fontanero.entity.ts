@@ -13,6 +13,7 @@ import { Averia } from '../../averias/entities/averia.entity';
 import { LaborAdicional } from '../../labores-adicionales/entities/labor-adicional.entity';
 import {
   EstadoRevisionReporte,
+  OrigenReporte,
   TipoActividad,
 } from './reporte-fontanero.enums';
 import { MaterialReporteFontanero } from './material-reporte-fontanero.entity';
@@ -37,6 +38,16 @@ export class ReporteFontanero {
 
   @Column({ type: 'enum', enum: TipoActividad })
   tipo_actividad: TipoActividad;
+
+  // Distingue el reporte que viene de un trabajo asignado (avería o labor) del
+  // que el fontanero registra por su cuenta. Los "no asignados" se muestran
+  // con una etiqueta propia en el panel administrativo.
+  @Column({
+    type: 'enum',
+    enum: OrigenReporte,
+    default: OrigenReporte.ASIGNADO,
+  })
+  origen: OrigenReporte;
 
   @Column({ type: 'text' })
   descripcion: string;

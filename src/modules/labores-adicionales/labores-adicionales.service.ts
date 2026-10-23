@@ -25,6 +25,7 @@ import {
   aplicarTerminoGestion,
   calcularDuracionMinutos,
 } from '../../common/gestion-trabajo/gestion-trabajo';
+import { SolicitudesMaterialService } from '../solicitudes-material/solicitudes-material.service';
 
 @Injectable()
 export class LaboresAdicionalesService {
@@ -36,6 +37,7 @@ export class LaboresAdicionalesService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     private readonly bitacoraService: BitacoraService,
+    private readonly solicitudesMaterialService: SolicitudesMaterialService,
   ) {}
 
   private async autorDe(usuarioId?: number) {
@@ -307,6 +309,13 @@ export class LaboresAdicionalesService {
     if (labor.estado === 'Finalizado' || labor.estado === 'En revisión') {
       throw new BadRequestException(
         'Esta labor ya fue reportada o finalizada y no se puede volver a iniciar.',
+      );
+    }
+
+    // Mismo bloqueo que en averías: con materiales pendientes no se arranca.
+    if (await this.solicitudesMaterialService.tienePendiente(null, labor.id)) {
+      throw new BadRequestException(
+        'Tenés una solicitud de materiales pendiente de aprobación. Esperá la respuesta de la administración para iniciar.',
       );
     }
 

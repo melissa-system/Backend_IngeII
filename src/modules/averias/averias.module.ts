@@ -9,6 +9,7 @@ import { Abonado } from '../abonados/entities/abonado.entity';
 import { User } from '../auth/entities/user.entity';
 import { BitacoraModule } from '../bitacora/bitacora.module';
 import { RecaptchaModule } from '../../common/recaptcha/recaptcha.module';
+import { SolicitudesMaterialModule } from '../solicitudes-material/solicitudes-material.module';
 
 @Module({
   imports: [
@@ -21,6 +22,9 @@ import { RecaptchaModule } from '../../common/recaptcha/recaptcha.module';
     ]),
     BitacoraModule,
     RecaptchaModule,
+    // Para no dejar iniciar la avería mientras haya una solicitud de
+    // materiales pendiente de aprobación.
+    SolicitudesMaterialModule,
   ],
   controllers: [AveriasController],
   providers: [AveriasService],

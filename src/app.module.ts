@@ -9,6 +9,7 @@ import { InventarioModule } from './modules/inventario/inventario.module';
 import { ReportesFontaneroModule } from './modules/reportes-fontanero/reportes-fontanero.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { SolicitudesModule } from './modules/solicitudes/solicitudes.module';
+import { SolicitudesMaterialModule } from './modules/solicitudes-material/solicitudes-material.module';
 import { AbonadosModule } from './modules/abonados/abonados.module';
 import { PublicacionesModule } from './modules/publicaciones/publicaciones.module';
 import { DocumentosModule } from './modules/documentos/documentos.module';
@@ -62,6 +63,7 @@ import { BitacoraModule } from './modules/bitacora/bitacora.module';
     InventarioModule,
     ReportesFontaneroModule,
     SolicitudesModule,
+    SolicitudesMaterialModule,
     AbonadosModule,
     PublicacionesModule,
     DocumentosModule,

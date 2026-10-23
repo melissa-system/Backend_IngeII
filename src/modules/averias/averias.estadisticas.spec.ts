@@ -112,6 +112,8 @@ describe('Averías Estadísticas (PBI 336 / Task 337, 338, 340)', () => {
       abonadoRepository,
       userRepository,
       bitacoraService,
+      // Sin solicitudes de material pendientes: no bloquea el inicio.
+      { tienePendiente: jest.fn().mockResolvedValue(false) } as any,
     );
 
     controller = new AveriasController(service);

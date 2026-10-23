@@ -8,9 +8,11 @@ import {
 } from 'class-validator';
 
 export class UpdateAveriaDto {
+  // "En proceso" no se acepta: lo asigna el sistema al asignar el fontanero.
   @IsOptional()
-  @IsIn(['Pendiente', 'En proceso', 'Finalizado'], {
-    message: 'El estado debe ser Pendiente, En proceso o Finalizado.',
+  @IsIn(['Pendiente', 'Finalizado'], {
+    message:
+      'El estado debe ser Pendiente o Finalizado. "En proceso" se asigna automáticamente al asignar un fontanero.',
   })
   estado?: string;
 

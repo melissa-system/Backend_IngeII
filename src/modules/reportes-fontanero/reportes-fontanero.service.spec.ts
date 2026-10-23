@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { ReportesFontaneroService } from './reportes-fontanero.service';
 import { TipoActividad } from './entities/reporte-fontanero.enums';
+import { OrigenReporte } from './entities/reporte-fontanero.enums';
 
 // Pruebas del registro de actividad del fontanero. Los materiales van en
 // texto libre dentro del reporte (sin descuento de inventario), así que la
@@ -197,6 +198,21 @@ describe('ReportesFontaneroService', () => {
 
     expect(laboresService.crearDesdeReporte).toHaveBeenCalled();
     expect(reportes[0].labor_id).toBe(50);
+  });
+
+  it('marca como "no asignado" el reporte manual', async () => {
+    await service.crear(dtoBase as any, usuarioFontanero);
+
+    expect(reportes[0].origen).toBe(OrigenReporte.NO_ASIGNADO);
+  });
+
+  it('marca como "asignado" el reporte vinculado a una avería', async () => {
+    await service.crear(
+      { ...dtoBase, averiaId: 7 } as any,
+      usuarioFontanero,
+    );
+
+    expect(reportes[0].origen).toBe(OrigenReporte.ASIGNADO);
   });
 
   it('reenvía sobre el reporte rechazado en vez de crear uno nuevo', async () => {

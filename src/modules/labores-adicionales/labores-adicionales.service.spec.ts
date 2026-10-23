@@ -67,6 +67,8 @@ describe('LaboresAdicionalesService — labor desde solicitud', () => {
       empleados as any,
       usuarios as any,
       bitacoraService,
+      // Sin solicitudes de material pendientes: no bloquea el inicio.
+      { tienePendiente: jest.fn().mockResolvedValue(false) } as any,
     );
   });
 
