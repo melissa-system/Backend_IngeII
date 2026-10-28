@@ -48,7 +48,13 @@ describe('Reglas de validación comunes (PBI 511 / Task 514)', () => {
     expect(esTelefono('8888-8888')).toBe(true);
     expect(esTelefono('88888888')).toBe(true);
     expect(esTelefono('8888-888')).toBe(false);
-    expect(esTelefono('+506 8888 8888')).toBe(false);
+    // Internacionales: válidos según su país
+    expect(esTelefono('+50688888888')).toBe(true);
+    expect(esTelefono('+506 8888 8888')).toBe(true);
+    expect(esTelefono('+1 415 555 2671')).toBe(true);
+    expect(esTelefono('+34 612 345 678')).toBe(true);
+    expect(esTelefono('+506 123')).toBe(false);
+    expect(esTelefono('+999 12345')).toBe(false);
     expect(esCorreo('ana@correo.com')).toBe(true);
     expect(esCorreo('ana@correo')).toBe(false);
     expect(esCorreo('ana correo@x.com')).toBe(false);

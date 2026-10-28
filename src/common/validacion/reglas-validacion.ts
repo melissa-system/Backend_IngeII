@@ -1,3 +1,4 @@
+import { isValidPhoneNumber } from 'libphonenumber-js';
 // Reglas de validación comunes a todo el sistema (PBI 511). Cédula,
 // teléfono y correo se validan igual en todos los módulos: los DTOs usan los
 // decoradores de decoradores-validacion.ts y los servicios estas funciones,
@@ -14,6 +15,8 @@ export const REGEX_CEDULA_JURIDICA = /^\d-?\d{3}-?\d{6}$/;
 export const REGEX_DIMEX = /^\d{11,12}$/;
 // Teléfono de Costa Rica: 8 dígitos, con o sin guion (XXXX-XXXX).
 export const REGEX_TELEFONO = /^\d{4}-?\d{4}$/;
+// Teléfonos internacionales: E.164 (+ código de país + número), validados con
+// libphonenumber-js según el país.
 // Correo: usuario@dominio.ext, sin espacios.
 export const REGEX_CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 // Fecha en formato ISO (YYYY-MM-DD).
@@ -27,7 +30,8 @@ export const MENSAJES_VALIDACION = {
     'La cédula jurídica debe tener 10 dígitos (ej. 3-101-123456).',
   identificacion:
     'La identificación debe ser una cédula física (9 dígitos), jurídica (10 dígitos) o un DIMEX (11 o 12 dígitos).',
-  telefono: 'El teléfono debe tener 8 dígitos (ej. 8888-8888).',
+  telefono:
+    'El teléfono debe ser válido: 8 dígitos de Costa Rica (ej. 8888-8888) o un número internacional con código de país (ej. +1 415 555 2671).',
   correo: 'El correo electrónico no tiene un formato válido.',
   fecha: 'La fecha no es válida (formato AAAA-MM-DD).',
 } as const;
@@ -61,7 +65,9 @@ export function esIdentificacion(
 }
 
 export function esTelefono(valor: unknown): boolean {
-  return REGEX_TELEFONO.test(texto(valor));
+  const t = texto(valor);
+  if (REGEX_TELEFONO.test(t)) return true;
+  return t.startsWith('+') && isValidPhoneNumber(t);
 }
 
 export function esCorreo(valor: unknown): boolean {
@@ -107,6 +113,8 @@ export function formatearCedula(cedula?: string | null): string | null {
 // Uniforma teléfonos de 8 dígitos al formato XXXX-XXXX.
 export function formatearTelefono(telefono?: string | null): string | null {
   if (!telefono) return telefono ?? null;
+  // Internacionales (E.164): se dejan tal cual, sin reformatear.
+  if (telefono.trim().startsWith('+')) return telefono.trim();
   const digitos = telefono.replace(/\D/g, '');
   if (digitos.length === 8) {
     return `${digitos.slice(0, 4)}-${digitos.slice(4)}`;
