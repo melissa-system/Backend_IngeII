@@ -1,16 +1,14 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize,
-  IsArray,
   IsDateString,
   IsEnum,
   IsInt,
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
   MinLength,
-  ValidateNested,
 } from 'class-validator';
 import { TipoActividad } from '../entities/reporte-fontanero.enums';
 
@@ -18,16 +16,7 @@ import { TipoActividad } from '../entities/reporte-fontanero.enums';
 // de digitación (escribir horas donde van minutos, por ejemplo).
 const MAXIMO_MINUTOS = 24 * 60;
 
-export class MaterialUtilizadoDto {
-  @Type(() => Number)
-  @IsInt({ message: 'El material seleccionado no es válido' })
-  articuloId: number;
-
-  @Type(() => Number)
-  @IsInt({ message: 'La cantidad debe ser un número entero' })
-  @Min(1, { message: 'La cantidad de cada material debe ser al menos 1' })
-  cantidad: number;
-}
+const MAXIMO_LARGO_MATERIALES = 500;
 
 export class CrearReporteFontaneroDto {
   @IsEnum(TipoActividad, {
@@ -41,7 +30,10 @@ export class CrearReporteFontaneroDto {
   })
   descripcion: string;
 
-  @IsDateString({}, { message: 'La fecha del trabajo debe tener formato YYYY-MM-DD' })
+  @IsDateString(
+    {},
+    { message: 'La fecha del trabajo debe tener formato YYYY-MM-DD' },
+  )
   fechaTrabajo: string;
 
   @Type(() => Number)
@@ -53,19 +45,27 @@ export class CrearReporteFontaneroDto {
   tiempoMinutos: number;
 
   // Avería que originó el trabajo. Opcional: hay actividades que no vienen de
-  // una avería reportada.
+  // una avería reportada. Excluyente con laborId.
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
+  @IsInt({ message: 'La avería seleccionada no es válida' })
+  @Min(1, { message: 'La avería seleccionada no es válida' })
   averiaId?: number;
 
-  // Materiales usados. Puede ir vacío: no todo trabajo consume inventario.
+  // Labor adicional que originó el trabajo (creada por la administración).
+  // Excluyente con averiaId.
   @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(30, {
-    message: 'No se pueden registrar más de 30 materiales en un mismo reporte',
+  @Type(() => Number)
+  @IsInt({ message: 'La labor seleccionada no es válida' })
+  @Min(1, { message: 'La labor seleccionada no es válida' })
+  laborId?: number;
+
+  // Materiales utilizados, en texto libre. Opcional: no todo trabajo consume
+  // material. Podría ser "" si el cliente manda el campo vacío.
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAXIMO_LARGO_MATERIALES, {
+    message: `La lista de materiales no puede superar ${MAXIMO_LARGO_MATERIALES} caracteres`,
   })
-  @ValidateNested({ each: true })
-  @Type(() => MaterialUtilizadoDto)
-  materiales?: MaterialUtilizadoDto[];
+  materialesTexto?: string;
 }

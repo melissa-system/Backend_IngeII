@@ -72,8 +72,8 @@ export class SolicitudConexionPajaAgua {
   @Column({ type: 'varchar', length: 100, nullable: true })
   plano_agrimensura: string | null;
 
-  @Column({ type: 'varchar', length: 100 })
-  numero_disponibilidad: string;
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  numero_disponibilidad: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   numero_nis: string | null;
@@ -127,4 +127,12 @@ export class SolicitudConexionPajaAgua {
 
   @Column({ type: 'text', nullable: true })
   motivo_rechazo: string | null;
+
+  // Documento de aprobación firmado por la ASADA que el administrador adjunta
+  // al aprobar la conexión; se envía por correo al solicitante.
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  documento_aprobacion_path: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  documento_aprobacion_public_id: string | null;
 }

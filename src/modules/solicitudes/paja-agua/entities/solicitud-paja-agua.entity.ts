@@ -142,6 +142,26 @@ export class SolicitudPajaAgua {
   @Column({ type: 'text', nullable: true })
   motivo_rechazo: string | null;
 
+  // Trazabilidad de la notificación por correo al solicitante cuando la
+  // solicitud se aprueba o rechaza: 'enviada', 'fallida' u 'omitida' (el
+  // solicitante no tenía un correo válido). Null = aún no se notificó.
+  // Documento de la solicitud aprobada (firmado por la ASADA) que el
+  // administrador adjunta al aprobar; se envía por correo al solicitante.
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  documento_aprobacion_path: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  documento_aprobacion_public_id: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  notificacion_estado: 'enviada' | 'fallida' | 'omitida' | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  notificacion_fecha: Date | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  notificacion_error: string | null;
+
   @CreateDateColumn()
   fecha_solicitud: Date;
 

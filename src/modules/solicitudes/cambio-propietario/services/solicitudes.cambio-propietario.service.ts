@@ -1,8 +1,14 @@
 import {
+  debeNotificar,
+  notificarResultado,
+  registrarNotificacion,
+} from '../../common/notificacion-resultado';
+import {
   BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, Repository } from 'typeorm';
@@ -205,7 +211,7 @@ export class SolicitudesCambioPropietarioService {
       },
     });
     if (duplicada) {
-      throw new BadRequestException(
+      throw new ConflictException(
         `Ya existe una solicitud de cambio de propietario en curso (${duplicada.codigo_solicitud}). Espera a que se resuelva antes de crear otra.`,
       );
     }
@@ -283,7 +289,9 @@ export class SolicitudesCambioPropietarioService {
     return this.cargarCompleta(solicitudGuardada.id);
   }
 
-  async listar(user: RequestUser): Promise<SolicitudCambioPropietarioResponse[]> {
+  async listar(
+    user: RequestUser,
+  ): Promise<SolicitudCambioPropietarioResponse[]> {
     const donde: FindOptionsWhere<Solicitud> = {
       tipo_solicitud: TIPO_CAMBIO_PROPIETARIO,
     };
@@ -413,25 +421,30 @@ export class SolicitudesCambioPropietarioService {
     );
 
     // Notificación por correo al abonado y al nuevo propietario
-    if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {
-      try {
-        await this.mailService.enviarCorreoResultadoCambioPropietario(
-          solicitud.abonado.correo,
-          detalle.correo_nuevo_propietario,
-          {
-            tipo: 'Cambio de Propietario (Cesión de Derechos)',
-            codigo: solicitud.codigo_solicitud,
-            estadoResultado: dto.estado as 'aprobado' | 'rechazado',
-            motivo: detalle.motivo_rechazo ?? null,
-            nombreNuevoPropietario: detalle.nombre_nuevo_propietario,
-          },
-        );
-      } catch (error) {
-        console.error(
-          `No se pudo notificar por correo el resultado de la solicitud ${solicitud.codigo_solicitud}:`,
-          error,
-        );
-      }
+    if (
+      debeNotificar(estadoAnterior, dto.estado, solicitud.notificacion_estado)
+    ) {
+      const notificacion = await notificarResultado({
+        destinatario: solicitud.abonado.correo,
+        codigo: solicitud.codigo_solicitud,
+        enviar: (destinatario) =>
+          this.mailService.enviarCorreoResultadoCambioPropietario(
+            destinatario,
+            detalle.correo_nuevo_propietario,
+            {
+              tipo: 'Cambio de Propietario (Cesión de Derechos)',
+              codigo: solicitud.codigo_solicitud,
+              estadoResultado: dto.estado as 'aprobado' | 'rechazado',
+              motivo: detalle.motivo_rechazo ?? null,
+              nombreNuevoPropietario: detalle.nombre_nuevo_propietario,
+            },
+          ),
+      });
+      await registrarNotificacion(
+        this.solicitudRepository,
+        solicitud.id,
+        notificacion,
+      );
     }
 
     return this.cargarCompleta(guardada.id);

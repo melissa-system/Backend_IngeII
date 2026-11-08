@@ -1,4 +1,5 @@
 import { IsString, IsOptional, Matches, MaxLength } from 'class-validator';
+import { EsCorreo } from '../../../common/validacion/decoradores-validacion';
 
 /**
  * DTO para actualizar los datos del perfil del usuario autenticado.
@@ -13,8 +14,8 @@ export class ActualizarPerfilDto {
   telefono?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(150)
+  @EsCorreo()
+  @MaxLength(150, { message: 'El correo no puede superar los 150 caracteres.' })
   email?: string;
 
   @IsOptional()

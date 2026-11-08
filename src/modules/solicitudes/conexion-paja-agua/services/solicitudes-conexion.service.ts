@@ -1,4 +1,9 @@
 import {
+  debeNotificar,
+  notificarResultado,
+  registrarNotificacion,
+} from '../../common/notificacion-resultado';
+import {
   BadRequestException,
   ConflictException,
   Injectable,
@@ -22,10 +27,34 @@ import { MailService } from '../../../auth/mail.service';
 import { BitacoraService } from '../../../bitacora/bitacora.service';
 import { ModuloBitacora } from '../../../bitacora/entities/bitacora.enums';
 import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
+import { LaboresAdicionalesService } from '../../../labores-adicionales/labores-adicionales.service';
+import { LaborAdicional } from '../../../labores-adicionales/entities/labor-adicional.entity';
+import { TipoActividad } from '../../../reportes-fontanero/entities/reporte-fontanero.enums';
+import {
+  type LaborDeSolicitud,
+  resumirLabor,
+} from '../../common/labor-solicitud';
 
 export const TIPO_CONEXION_PAJA_AGUA = 'conexion_paja_agua';
 const CARPETA_CLOUDINARY = 'ASADA/solicitudes/conexion-paja-agua';
 const ESTADOS_FINALES = ['aprobado', 'rechazado'];
+
+// Etiquetas legibles para la descripción de la labor generada al aprobar.
+const ETIQUETA_TIPO_TRAMITE: Record<string, string> = {
+  nueva_conexion: 'Nueva conexión',
+  individualizacion: 'Individualización',
+  independizacion: 'Independización',
+  traslado: 'Traslado',
+  servicio_provisional_proyectos: 'Servicio provisional para proyectos',
+  cambio_diametro: 'Cambio de diámetro',
+  servicio_temporal: 'Servicio temporal',
+};
+
+const ETIQUETA_SERVICIO: Record<string, string> = {
+  agua_potable: 'Agua potable',
+  alcantarillado_sanitario: 'Alcantarillado sanitario',
+  ambos: 'Ambos',
+};
 
 export interface SolicitudConexionDisponible {
   id: number;
@@ -55,6 +84,19 @@ export interface SolicitudConexionResponse {
   correo: string;
   estado: string;
   solicitud_paja_agua_codigo: string;
+  // Snapshot de la solicitud original (sección I y III del formulario):
+  // se necesitan para el documento de conexión sin tener que consultar la
+  // solicitud de paja de agua por separado.
+  tipo_persona: string;
+  nombre_solicitante: string;
+  identificacion_solicitante: string;
+  telefono_solicitante: string;
+  provincia: string | null;
+  canton: string | null;
+  distrito: string | null;
+  direccion_inmueble: string;
+  naturaleza_inmueble: string | null;
+  calidad_titular: string | null;
   medio_notificacion_principal: string;
   valor_notificacion_principal: string;
   medio_notificacion_secundario: string | null;
@@ -62,7 +104,7 @@ export interface SolicitudConexionResponse {
   folio_real: string | null;
   plano_catastro: string | null;
   plano_agrimensura: string | null;
-  numero_disponibilidad: string;
+  numero_disponibilidad: string | null;
   numero_nis: string | null;
   servicio_solicitado: string;
   tipo_tramite: string;
@@ -74,6 +116,8 @@ export interface SolicitudConexionResponse {
   adjuntos: AdjuntoConexion[];
   motivo_rechazo: string | null;
   id_empleado: number | null;
+  // Labor generada en "Otros mantenimientos" al aprobar la solicitud.
+  labor: LaborDeSolicitud | null;
   fecha_creacion: Date;
   fecha_actualizacion: Date;
 }
@@ -96,6 +140,7 @@ export class SolicitudesConexionService {
     private readonly cloudinaryService: CloudinaryService,
     private readonly mailService: MailService,
     private readonly bitacoraService: BitacoraService,
+    private readonly laboresService: LaboresAdicionalesService,
   ) {}
 
   private buscarAbonadoDeUsuario(usuarioId: number): Promise<Abonado | null> {
@@ -104,9 +149,7 @@ export class SolicitudesConexionService {
     });
   }
 
-  private buscarEmpleadoDeUsuario(
-    usuarioId: number,
-  ): Promise<Empleado | null> {
+  private buscarEmpleadoDeUsuario(usuarioId: number): Promise<Empleado | null> {
     return this.empleadoRepository.findOne({
       where: { usuario: { id: usuarioId } },
     });
@@ -129,9 +172,31 @@ export class SolicitudesConexionService {
     }
   }
 
+  // Texto que verá el fontanero en su bandeja: trámite, abonado, dirección y
+  // NIS. El detalle estructurado viaja aparte, en datos_solicitud de la labor.
+  private descripcionLabor(
+    solicitud: Solicitud,
+    detalle: SolicitudConexionPajaAgua,
+    direccion: string,
+  ): string {
+    const tramite =
+      ETIQUETA_TIPO_TRAMITE[detalle.tipo_tramite] ?? detalle.tipo_tramite;
+    const servicio =
+      ETIQUETA_SERVICIO[detalle.servicio_solicitado] ??
+      detalle.servicio_solicitado;
+    const nis = detalle.numero_nis ? ` NIS: ${detalle.numero_nis}.` : '';
+    return (
+      `Conexión de servicio (${tramite} · ${servicio}) — ` +
+      `${solicitud.abonado.nombre} (${solicitud.abonado.numero_abonado}). ` +
+      `Dirección: ${direccion || 'sin dirección registrada'}.${nis} ` +
+      `Solicitud ${solicitud.codigo_solicitud}.`
+    );
+  }
+
   private construirRespuesta(
     solicitud: Solicitud,
     detalle: SolicitudConexionPajaAgua,
+    labor: LaborAdicional | null,
   ): SolicitudConexionResponse {
     return {
       id: solicitud.id,
@@ -144,6 +209,18 @@ export class SolicitudesConexionService {
       estado: solicitud.estado,
       solicitud_paja_agua_codigo:
         detalle.solicitudPajaAgua?.codigo_solicitud ?? '',
+      tipo_persona: detalle.solicitudPajaAgua?.tipo_persona ?? 'fisica',
+      nombre_solicitante: detalle.solicitudPajaAgua?.nombre_solicitante ?? '',
+      identificacion_solicitante:
+        detalle.solicitudPajaAgua?.identificacion ?? '',
+      telefono_solicitante: detalle.solicitudPajaAgua?.telefono ?? '',
+      provincia: detalle.solicitudPajaAgua?.provincia ?? null,
+      canton: detalle.solicitudPajaAgua?.canton ?? null,
+      distrito: detalle.solicitudPajaAgua?.distrito ?? null,
+      direccion_inmueble: detalle.solicitudPajaAgua?.direccion ?? '',
+      naturaleza_inmueble:
+        detalle.solicitudPajaAgua?.naturaleza_inmueble ?? null,
+      calidad_titular: detalle.solicitudPajaAgua?.calidad_titular ?? null,
       medio_notificacion_principal: detalle.medio_notificacion_principal,
       valor_notificacion_principal: detalle.valor_notificacion_principal,
       medio_notificacion_secundario: detalle.medio_notificacion_secundario,
@@ -163,6 +240,7 @@ export class SolicitudesConexionService {
       adjuntos: detalle.adjuntos ?? [],
       motivo_rechazo: detalle.motivo_rechazo,
       id_empleado: solicitud.empleado?.id ?? null,
+      labor: resumirLabor(labor),
       fecha_creacion: solicitud.fecha_creacion,
       fecha_actualizacion: solicitud.fecha_actualizacion,
     };
@@ -185,7 +263,8 @@ export class SolicitudesConexionService {
         'La solicitud no tiene detalle de conexión de servicio',
       );
     }
-    return this.construirRespuesta(solicitud, detalle);
+    const labor = await this.laboresService.obtenerPorSolicitud(solicitud.id);
+    return this.construirRespuesta(solicitud, detalle, labor);
   }
 
   // Solicitudes de paja de agua ya Aprobadas de este abonado que TODAVÍA no
@@ -340,7 +419,7 @@ export class SolicitudesConexionService {
         folio_real: dto.folioReal ?? null,
         plano_catastro: dto.planoCatastro ?? null,
         plano_agrimensura: dto.planoAgrimensura ?? null,
-        numero_disponibilidad: dto.numeroDisponibilidad,
+        numero_disponibilidad: dto.numeroDisponibilidad ?? null,
         numero_nis: dto.numeroNis ?? null,
         servicio_solicitado: dto.servicioSolicitado,
         tipo_tramite: dto.tipoTramite,
@@ -398,16 +477,39 @@ export class SolicitudesConexionService {
       detalles.map((d) => [d.solicitud.id, d]),
     );
 
+    // Labores generadas (si la solicitud ya fue aprobada), en una sola
+    // consulta para no repetir por cada fila.
+    const labores = await this.laboresService.obtenerPorSolicitudes(ids);
+    const laborPorSolicitud = new Map(
+      labores
+        .filter((l) => l.id_solicitud !== null)
+        .map((l) => [l.id_solicitud as number, l]),
+    );
+
     return solicitudes
       .filter((s) => detallePorSolicitud.has(s.id))
-      .map((s) => this.construirRespuesta(s, detallePorSolicitud.get(s.id)!));
+      .map((s) =>
+        this.construirRespuesta(
+          s,
+          detallePorSolicitud.get(s.id)!,
+          laborPorSolicitud.get(s.id) ?? null,
+        ),
+      );
   }
 
   async cambiarEstado(
     id: number,
     dto: ActualizarEstadoSolicitudDto,
     user: RequestUser,
+    documentoAprobacion?: Express.Multer.File,
   ): Promise<SolicitudConexionResponse> {
+    // Al aprobar es obligatorio adjuntar el documento firmado por la ASADA.
+    if (dto.estado === 'aprobado' && !documentoAprobacion) {
+      throw new BadRequestException(
+        'Debes adjuntar el documento de aprobación (firmado por la ASADA) para poder aprobar la conexión',
+      );
+    }
+
     const solicitud = await this.solicitudRepository.findOne({
       where: { id, tipo_solicitud: TIPO_CONEXION_PAJA_AGUA },
       relations: { abonado: true, empleado: true },
@@ -437,14 +539,57 @@ export class SolicitudesConexionService {
       solicitud.empleado = empleado;
     }
 
+    // Se sube antes de cambiar el estado: si falla, la solicitud sigue
+    // pendiente y se puede reintentar.
+    if (dto.estado === 'aprobado' && documentoAprobacion) {
+      const subido = await this.cloudinaryService.subirArchivo(
+        documentoAprobacion,
+        CARPETA_CLOUDINARY,
+      );
+      detalle.documento_aprobacion_path = subido.url;
+      detalle.documento_aprobacion_public_id = subido.publicId;
+    }
+
     solicitud.estado = dto.estado;
     if (dto.estado === 'rechazado') {
       detalle.motivo_rechazo = dto.motivoRechazo?.trim() || null;
     }
 
     const guardada = await this.solicitudRepository.save(solicitud);
-    if (dto.estado === 'rechazado') {
+    if (dto.estado === 'rechazado' || dto.estado === 'aprobado') {
       await this.detalleRepository.save(detalle);
+    }
+
+    // Al aprobar se genera el trabajo operativo: la conexión pasa a "Otros
+    // mantenimientos" como labor pendiente, sin fontanero, para que la
+    // administración la asigne. Best-effort: la aprobación ya quedó guardada.
+    if (dto.estado === 'aprobado') {
+      try {
+        const direccion = detalle.solicitudPajaAgua?.direccion ?? '';
+        await this.laboresService.crearDesdeSolicitud({
+          idSolicitud: guardada.id,
+          tipoActividad: TipoActividad.INSTALACION,
+          descripcion: this.descripcionLabor(guardada, detalle, direccion),
+          datos: {
+            codigo_solicitud: guardada.codigo_solicitud,
+            tipo_solicitud: TIPO_CONEXION_PAJA_AGUA,
+            abonado: {
+              nombre: guardada.abonado.nombre,
+              numero_abonado: guardada.abonado.numero_abonado,
+              cedula: guardada.abonado.cedula,
+              telefono: guardada.abonado.telefono,
+            },
+            direccion,
+            numero_nis: detalle.numero_nis ?? null,
+          },
+          creadoPorId: user.id,
+        });
+      } catch (error) {
+        console.error(
+          `No se pudo crear la labor de la solicitud ${guardada.codigo_solicitud}:`,
+          error,
+        );
+      }
     }
 
     await this.bitacoraService.registrarCambioEstado(
@@ -456,23 +601,33 @@ export class SolicitudesConexionService {
       dto.motivoRechazo?.trim() || 'Actualización de estado',
     );
 
-    if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {
-      try {
-        await this.mailService.enviarCorreoResultadoSolicitud(
-          solicitud.abonado.correo,
-          {
+    if (
+      debeNotificar(estadoAnterior, dto.estado, solicitud.notificacion_estado)
+    ) {
+      const notificacion = await notificarResultado({
+        destinatario: solicitud.abonado.correo,
+        codigo: solicitud.codigo_solicitud,
+        enviar: (destinatario) =>
+          this.mailService.enviarCorreoResultadoSolicitud(destinatario, {
             tipo: 'Solicitud de conexión de servicio',
             codigo: solicitud.codigo_solicitud,
             estadoResultado: dto.estado as 'aprobado' | 'rechazado',
             motivo: detalle.motivo_rechazo ?? null,
-          },
-        );
-      } catch (error) {
-        console.error(
-          `Error al notificar por correo solicitud ${solicitud.codigo_solicitud}:`,
-          error,
-        );
-      }
+            adjunto:
+              dto.estado === 'aprobado' && documentoAprobacion
+                ? {
+                    nombre: documentoAprobacion.originalname,
+                    contenido: documentoAprobacion.buffer,
+                  }
+                : undefined,
+          }),
+      });
+      await registrarNotificacion(
+        this.solicitudRepository,
+        solicitud.id,
+        notificacion,
+      );
+      Object.assign(guardada, notificacion);
     }
 
     return this.cargarCompleta(guardada.id);

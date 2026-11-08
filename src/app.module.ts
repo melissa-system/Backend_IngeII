@@ -4,10 +4,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AveriasModule } from './modules/averias/averias.module';
+import { LaboresAdicionalesModule } from './modules/labores-adicionales/labores-adicionales.module';
 import { InventarioModule } from './modules/inventario/inventario.module';
 import { ReportesFontaneroModule } from './modules/reportes-fontanero/reportes-fontanero.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { SolicitudesModule } from './modules/solicitudes/solicitudes.module';
+import { SolicitudesMaterialModule } from './modules/solicitudes-material/solicitudes-material.module';
 import { AbonadosModule } from './modules/abonados/abonados.module';
 import { PublicacionesModule } from './modules/publicaciones/publicaciones.module';
 import { DocumentosModule } from './modules/documentos/documentos.module';
@@ -24,34 +26,54 @@ import { BitacoraModule } from './modules/bitacora/bitacora.module';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'mysql',
-        host: configService.get<string>('DB_HOST'),
-        port: Number(configService.get<string>('DB_PORT')),
-        username: configService.get<string>('DB_USERNAME'),
-        password: configService.get<string>('DB_PASSWORD'),
-        database: configService.get<string>('DB_DATABASE'),
-        autoLoadEntities: true,
-        synchronize: true,
-        ssl: {
-          rejectUnauthorized: false,
-        },
-        // Sin esto, mysql2 serializa los Date de JS con la hora LOCAL del
-        // proceso de Node (no hay TZ fijado en el entorno) al escribir
-        // columnas timestamp, mientras que las consultas comparan con
-        // NOW() de MySQL (UTC en Aiven) — el desfase hacía que tokens como
-        // el de "restablecer contraseña" (vigencia de 30 min) aparecieran
-        // "expirados" casi de inmediato. 'Z' fuerza a mysql2 a leer y
-        // escribir siempre en UTC, que es lo que NOW() también usa.
-        timezone: 'Z',
-      }),
+      useFactory: (configService: ConfigService) => {
+        const esProduccion =
+          configService.get<string>('NODE_ENV') === 'production';
+        const usarSsl = configService.get<string>('DB_SSL') === 'true';
+
+        return {
+          type: 'mysql',
+          host: configService.get<string>('DB_HOST'),
+          port: Number(configService.get<string>('DB_PORT')),
+          username: configService.get<string>('DB_USERNAME'),
+          password: configService.get<string>('DB_PASSWORD'),
+          database:
+            configService.get<string>('DB_DATABASE') ||
+            configService.get<string>('DB_NAME'),
+          autoLoadEntities: true,
+          // En producción synchronize DEBE ser false; los cambios de esquema
+          // se gestionan exclusivamente mediante migraciones controladas.
+          synchronize: !esProduccion,
+          // SSL condicional: solo activo si DB_SSL=true (ej. Aiven Cloud).
+          // Para MySQL local en el VPS se configura DB_SSL=false.
+          ssl: usarSsl ? { rejectUnauthorized: false } : undefined,
+          // Sin esto, mysql2 serializa los Date de JS con la hora LOCAL del
+          // proceso de Node (no hay TZ fijado en el entorno) al escribir
+          // columnas timestamp, mientras que las consultas comparan con
+          // NOW() de MySQL (UTC en Aiven) — el desfase hacía que tokens como
+          // el de "restablecer contraseña" (vigencia de 30 min) aparecieran
+          // "expirados" casi de inmediato. 'Z' fuerza a mysql2 a leer y
+          // escribir siempre en UTC, que es lo que NOW() también usa.
+          timezone: 'Z',
+          // Optimización del pool para mitigar consumo de RAM en MySQL Aiven (PBI de optimización)
+          extra: {
+            connectionLimit: 4,
+            idleTimeout: 30000,
+            queueLimit: 0,
+            enableKeepAlive: true,
+            keepAliveInitialDelay: 10000,
+          },
+        };
+      },
     }),
    
     AuthModule,
     AveriasModule,
+    LaboresAdicionalesModule,
     InventarioModule,
     ReportesFontaneroModule,
     SolicitudesModule,
+    SolicitudesMaterialModule,
     AbonadosModule,
     PublicacionesModule,
     DocumentosModule,

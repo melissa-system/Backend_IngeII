@@ -2,9 +2,10 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Abonado } from './entities/abonado.entity';
 import { HistorialAbonado } from './entities/historial-abonado.entity';
 import { CreateAbonadoDto } from './dto/create-abonado.dto';
@@ -13,9 +14,29 @@ import { User } from '../auth/entities/user.entity';
 import { Empleado } from '../empleados/entities/empleado.entity';
 import { Solicitud } from '../solicitudes/common/entities/solicitud.entity';
 import { Averia } from '../averias/entities/averia.entity';
+import { FiltroEstadisticasAbonadosDto } from './dto/filtro-estadisticas-abonados.dto';
 import { AuthService } from '../auth/auth.service';
 import { BitacoraService } from '../bitacora/bitacora.service';
 import { ModuloBitacora } from '../bitacora/entities/bitacora.enums';
+import {
+  esCorreo,
+  esIdentificacion,
+  esTelefono,
+  formatearCedula,
+  formatearTelefono,
+  MENSAJES_VALIDACION,
+  TipoIdentificacion,
+} from '../../common/validacion/reglas-validacion';
+import { errorDeCampo } from '../../common/errores/respuesta-error';
+
+// Nombre legible de cada campo obligatorio para los mensajes de error.
+const MENSAJES_OBLIGATORIO = {
+  nombre: 'El nombre es obligatorio.',
+  cedula: 'La cédula es obligatoria.',
+  telefono: 'El teléfono es obligatorio.',
+  correo: 'El correo electrónico es obligatorio.',
+  direccion: 'La dirección es obligatoria.',
+} as const;
 
 // Forma "plana" que consume el frontend: junta la fila base con los campos
 // de la subtabla que corresponda (fisico o juridico) en un solo objeto,
@@ -44,7 +65,20 @@ export interface AbonadoPlano {
   cedula_representante: string | null;
 }
 
-const RELACIONES_DETALLE = { fisico: true, juridico: true, usuario: true } as const;
+const RELACIONES_DETALLE = {
+  fisico: true,
+  juridico: true,
+  usuario: true,
+} as const;
+
+// Forma en que la pagina de reportes estadísticos consume el módulo de
+// abonados: total filtrado, conteos por tipo/estado y los registros planos.
+export interface EstadisticasAbonadosRespuesta {
+  total: number;
+  porTipo: { tipo: string; total: number }[];
+  porEstado: { estado: string; total: number }[];
+  registros: AbonadoPlano[];
+}
 
 @Injectable()
 export class AbonadosService {
@@ -88,50 +122,35 @@ export class AbonadosService {
     };
   }
 
-  // Uniforma teléfonos de 8 dígitos al formato XXXX-XXXX. Cualquier otro
-  // formato (internacionales, extensiones, etc.) se respeta tal cual.
-  private formatearTelefono(telefono?: string | null): string | null {
-    if (!telefono) return telefono ?? null;
-    const digitos = telefono.replace(/\D/g, '');
-    if (digitos.length === 8) {
-      return `${digitos.slice(0, 4)}-${digitos.slice(4)}`;
-    }
-    return String(telefono).trim();
-  }
-
-  // Uniforma cédulas costarricenses: física (9 dígitos) como X-XXXX-XXXX
-  // y jurídica (10 dígitos) como X-XXX-XXXXXX. Otros documentos (DIMEX,
-  // pasaportes, etc.) se dejan tal cual.
-  private formatearCedula(cedula?: string | null): string | null {
-    if (!cedula) return cedula ?? null;
-    const digitos = cedula.replace(/\D/g, '');
-    if (digitos.length === 9) {
-      return `${digitos.slice(0, 1)}-${digitos.slice(1, 5)}-${digitos.slice(5)}`;
-    }
-    if (digitos.length === 10) {
-      return `${digitos.slice(0, 1)}-${digitos.slice(1, 4)}-${digitos.slice(4)}`;
-    }
-    return String(cedula).trim();
-  }
-
   // Reglas de negocio compartidas entre creación y actualización: campos
   // obligatorios de la tabla base, y los exclusivos de cada subtabla según
   // tipo_abonado (representante legal + su cédula para jurídica).
-  private validarDatosAbonado(datos: {
-    tipo_abonado: string;
-    nombre?: string | null;
-    cedula?: string | null;
-    telefono?: string | null;
-    correo?: string | null;
-    direccion?: string | null;
-    apellido1?: string | null;
-    nombre_representante_legal?: string | null;
-    cedula_representante?: string | null;
-  }): void {
+  private validarDatosAbonado(
+    datos: {
+      tipo_abonado: string;
+      nombre?: string | null;
+      cedula?: string | null;
+      telefono?: string | null;
+      correo?: string | null;
+      direccion?: string | null;
+      apellido1?: string | null;
+      nombre_representante_legal?: string | null;
+      cedula_representante?: string | null;
+    },
+    // Campos cuyo formato se revisa. Al crear se revisan todos; al editar solo
+    // los que cambiaron, para no bloquear la edición de registros antiguos
+    // guardados antes de que existieran estas reglas.
+    camposFormato: ReadonlySet<string> = new Set([
+      'cedula',
+      'cedula_representante',
+      'telefono',
+      'correo',
+    ]),
+  ): void {
     // Antes de validar se uniforma el formato: si el usuario no escribió
     // los guiones del teléfono o la cédula, se agregan automáticamente.
-    datos.telefono = this.formatearTelefono(datos.telefono);
-    datos.cedula = this.formatearCedula(datos.cedula);
+    datos.telefono = formatearTelefono(datos.telefono);
+    datos.cedula = formatearCedula(datos.cedula);
 
     const camposObligatorios = [
       'nombre',
@@ -143,7 +162,9 @@ export class AbonadosService {
     for (const campo of camposObligatorios) {
       const valor = datos[campo];
       if (!valor || String(valor).trim() === '') {
-        throw new BadRequestException(`El campo '${campo}' es obligatorio`);
+        throw new BadRequestException(
+          errorDeCampo(campo, MENSAJES_OBLIGATORIO[campo]),
+        );
       }
     }
 
@@ -153,7 +174,10 @@ export class AbonadosService {
         datos.nombre_representante_legal.trim() === ''
       ) {
         throw new BadRequestException(
-          `El campo 'nombre_representante_legal' es obligatorio para personas jurídicas`,
+          errorDeCampo(
+            'nombre_representante_legal',
+            'El nombre del representante legal es obligatorio para personas jurídicas.',
+          ),
         );
       }
       if (
@@ -161,13 +185,52 @@ export class AbonadosService {
         datos.cedula_representante.trim() === ''
       ) {
         throw new BadRequestException(
-          `El campo 'cedula_representante' es obligatorio para personas jurídicas`,
+          errorDeCampo(
+            'cedula_representante',
+            'La cédula del representante legal es obligatoria para personas jurídicas.',
+          ),
         );
       }
     }
 
-    if (!String(datos.correo).includes('@')) {
-      throw new BadRequestException('El correo electrónico no tiene un formato válido');
+    // Formatos comunes del sistema (mismas reglas que los DTOs y que el
+    // frontend). La cédula además debe corresponder al tipo de abonado.
+    const tiposCedula: TipoIdentificacion[] =
+      datos.tipo_abonado === 'Jurídica' ? ['juridica'] : ['fisica', 'dimex'];
+    if (
+      camposFormato.has('cedula') &&
+      !esIdentificacion(datos.cedula, tiposCedula)
+    ) {
+      throw new BadRequestException(
+        errorDeCampo(
+          'cedula',
+          datos.tipo_abonado === 'Jurídica'
+            ? MENSAJES_VALIDACION.cedulaJuridica
+            : 'La cédula de una persona física debe tener 9 dígitos (o 11-12 si es DIMEX).',
+        ),
+      );
+    }
+    if (
+      camposFormato.has('cedula_representante') &&
+      datos.cedula_representante &&
+      !esIdentificacion(datos.cedula_representante, ['fisica', 'dimex'])
+    ) {
+      throw new BadRequestException(
+        errorDeCampo(
+          'cedula_representante',
+          'La cédula del representante legal debe ser una cédula física (9 dígitos) o un DIMEX (11 o 12 dígitos).',
+        ),
+      );
+    }
+    if (camposFormato.has('telefono') && !esTelefono(datos.telefono)) {
+      throw new BadRequestException(
+        errorDeCampo('telefono', MENSAJES_VALIDACION.telefono),
+      );
+    }
+    if (camposFormato.has('correo') && !esCorreo(datos.correo)) {
+      throw new BadRequestException(
+        errorDeCampo('correo', MENSAJES_VALIDACION.correo),
+      );
     }
   }
 
@@ -188,8 +251,11 @@ export class AbonadosService {
       cedula: createAbonadoDto.cedula,
     });
     if (cedulaExistente) {
-      throw new BadRequestException(
-        `Ya existe un abonado registrado con la cédula ${createAbonadoDto.cedula}`,
+      throw new ConflictException(
+        errorDeCampo(
+          'cedula',
+          `Ya existe un abonado registrado con la cédula ${createAbonadoDto.cedula}`,
+        ),
       );
     }
 
@@ -202,7 +268,7 @@ export class AbonadosService {
       cedula: createAbonadoDto.cedula,
     });
     if (empleadoConEsaCedula && !createAbonadoDto.confirmarVinculacion) {
-      throw new BadRequestException({
+      throw new ConflictException({
         requiereConfirmacion: true,
         tipo: 'empleado',
         registro: {
@@ -217,8 +283,11 @@ export class AbonadosService {
       correo: createAbonadoDto.correo,
     });
     if (correoExistente) {
-      throw new BadRequestException(
-        `Ya existe un abonado registrado con el correo ${createAbonadoDto.correo}`,
+      throw new ConflictException(
+        errorDeCampo(
+          'correo',
+          `Ya existe un abonado registrado con el correo ${createAbonadoDto.correo}`,
+        ),
       );
     }
 
@@ -226,8 +295,11 @@ export class AbonadosService {
       telefono: createAbonadoDto.telefono,
     });
     if (telefonoExistente) {
-      throw new BadRequestException(
-        `Ya existe un abonado registrado con el teléfono ${createAbonadoDto.telefono}`,
+      throw new ConflictException(
+        errorDeCampo(
+          'telefono',
+          `Ya existe un abonado registrado con el teléfono ${createAbonadoDto.telefono}`,
+        ),
       );
     }
 
@@ -301,7 +373,7 @@ export class AbonadosService {
     const abonado = await this.cargarConDetalle(id);
 
     if (abonado.usuario) {
-      throw new BadRequestException(
+      throw new ConflictException(
         `El abonado ${abonado.numero_abonado} ya tiene una cuenta de acceso vinculada.`,
       );
     }
@@ -358,7 +430,9 @@ export class AbonadosService {
       relations: RELACIONES_DETALLE,
     });
     if (!abonado) {
-      throw new NotFoundException(`El abonado con el ID ${id} no fue encontrado`);
+      throw new NotFoundException(
+        `El abonado con el ID ${id} no fue encontrado`,
+      );
     }
     return abonado;
   }
@@ -390,6 +464,102 @@ export class AbonadosService {
 
     const abonados = await query.getMany();
     return abonados.map((a) => this.aPlano(a));
+  }
+
+  // Resumen estadístico para la página de reportes: total filtrado, conteos
+  // por tipo/estado y los registros planos. Mismo contrato que el endpoint
+  // de estadísticas de averías para que el frontend use la misma lógica.
+  async obtenerEstadisticas(
+    filtros: FiltroEstadisticasAbonadosDto,
+  ): Promise<EstadisticasAbonadosRespuesta> {
+    if (filtros.fechaInicio?.trim() && filtros.fechaFin?.trim()) {
+      if (filtros.fechaInicio > filtros.fechaFin) {
+        throw new BadRequestException(
+          'La fecha de inicio no puede ser posterior a la fecha de fin',
+        );
+      }
+    }
+
+    const qTotal = this.abonadoRepository.createQueryBuilder('a');
+    this.aplicarFiltrosEstadisticas(qTotal, filtros);
+    const total = await qTotal.getCount();
+
+    if (total === 0) {
+      return {
+        total: 0,
+        porTipo: [],
+        porEstado: [],
+        registros: [],
+      };
+    }
+
+    const qTipo = this.abonadoRepository
+      .createQueryBuilder('a')
+      .select('a.tipo_abonado', 'tipo')
+      .addSelect('COUNT(a.id)', 'total');
+    this.aplicarFiltrosEstadisticas(qTipo, filtros);
+    const rawPorTipo = await qTipo
+      .groupBy('a.tipo_abonado')
+      .orderBy('total', 'DESC')
+      .getRawMany();
+
+    const qEstado = this.abonadoRepository
+      .createQueryBuilder('a')
+      .select('a.estado', 'estado')
+      .addSelect('COUNT(a.id)', 'total');
+    this.aplicarFiltrosEstadisticas(qEstado, filtros);
+    const rawPorEstado = await qEstado
+      .groupBy('a.estado')
+      .orderBy('total', 'DESC')
+      .getRawMany();
+
+    const qRegistros = this.abonadoRepository
+      .createQueryBuilder('a')
+      .leftJoinAndSelect('a.fisico', 'fisico')
+      .leftJoinAndSelect('a.juridico', 'juridico')
+      .leftJoinAndSelect('a.usuario', 'usuario')
+      .orderBy('a.fecha_registro', 'DESC');
+    this.aplicarFiltrosEstadisticas(qRegistros, filtros);
+    const registros = await qRegistros.getMany();
+
+    return {
+      total,
+      porTipo: rawPorTipo.map((item) => ({
+        tipo: item.tipo,
+        total: Number(item.total) || 0,
+      })),
+      porEstado: rawPorEstado.map((item) => ({
+        estado: item.estado,
+        total: Number(item.total) || 0,
+      })),
+      registros: registros.map((a) => this.aPlano(a)),
+    };
+  }
+
+  private aplicarFiltrosEstadisticas(
+    query: SelectQueryBuilder<Abonado>,
+    filtros: FiltroEstadisticasAbonadosDto,
+  ) {
+    if (filtros.fechaInicio?.trim()) {
+      const inicio =
+        filtros.fechaInicio.trim().length === 10
+          ? `${filtros.fechaInicio.trim()} 00:00:00`
+          : filtros.fechaInicio.trim();
+      query.andWhere('a.fecha_registro >= :inicio', { inicio });
+    }
+    if (filtros.fechaFin?.trim()) {
+      const fin =
+        filtros.fechaFin.trim().length === 10
+          ? `${filtros.fechaFin.trim()} 23:59:59`
+          : filtros.fechaFin.trim();
+      query.andWhere('a.fecha_registro <= :fin', { fin });
+    }
+    if (filtros.tipo?.trim() && filtros.tipo.trim() !== 'Todos') {
+      query.andWhere('a.tipo_abonado = :tipo', { tipo: filtros.tipo.trim() });
+    }
+    if (filtros.estado?.trim() && filtros.estado.trim() !== 'Todos') {
+      query.andWhere('a.estado = :estado', { estado: filtros.estado.trim() });
+    }
   }
 
   async findOne(id: number): Promise<AbonadoPlano> {
@@ -443,7 +613,7 @@ export class AbonadosService {
     // El teléfono se uniforma aquí (y no solo en la entidad) para que el
     // historial compare el valor ya formateado contra el anterior.
     if (cambios['telefono'] != null) {
-      cambios['telefono'] = this.formatearTelefono(cambios['telefono']);
+      cambios['telefono'] = formatearTelefono(cambios['telefono']);
     }
 
     const camposBase = ['nombre', 'telefono', 'correo', 'direccion'];
@@ -462,7 +632,11 @@ export class AbonadosService {
           numero_plano_catastrado: null,
         } as Abonado['fisico'];
       }
-      const camposFisico = ['apellido1', 'apellido2', 'numero_plano_catastrado'];
+      const camposFisico = [
+        'apellido1',
+        'apellido2',
+        'numero_plano_catastrado',
+      ];
       for (const campo of camposFisico) {
         if (cambios[campo] !== undefined) {
           (abonado.fisico as unknown as Record<string, string | null>)[campo] =
@@ -476,7 +650,10 @@ export class AbonadosService {
           cedula_representante: null,
         } as Abonado['juridico'];
       }
-      const camposJuridico = ['nombre_representante_legal', 'cedula_representante'];
+      const camposJuridico = [
+        'nombre_representante_legal',
+        'cedula_representante',
+      ];
       for (const campo of camposJuridico) {
         if (cambios[campo] !== undefined) {
           (abonado.juridico as unknown as Record<string, string | null>)[
@@ -487,17 +664,21 @@ export class AbonadosService {
     }
 
     // Revalida las reglas sobre la entidad ya fusionada, según su tipo real
-    this.validarDatosAbonado({
-      tipo_abonado: abonado.tipo_abonado,
-      nombre: abonado.nombre,
-      cedula: abonado.cedula,
-      telefono: abonado.telefono,
-      correo: abonado.correo,
-      direccion: abonado.direccion,
-      apellido1: abonado.fisico?.apellido1,
-      nombre_representante_legal: abonado.juridico?.nombre_representante_legal,
-      cedula_representante: abonado.juridico?.cedula_representante,
-    });
+    this.validarDatosAbonado(
+      {
+        tipo_abonado: abonado.tipo_abonado,
+        nombre: abonado.nombre,
+        cedula: abonado.cedula,
+        telefono: abonado.telefono,
+        correo: abonado.correo,
+        direccion: abonado.direccion,
+        apellido1: abonado.fisico?.apellido1,
+        nombre_representante_legal:
+          abonado.juridico?.nombre_representante_legal,
+        cedula_representante: abonado.juridico?.cedula_representante,
+      },
+      new Set(Object.keys(cambios)),
+    );
 
     // Si el correo o el teléfono cambiaron, evitar que queden duplicados
     // con OTRO abonado (se excluye el propio registro de la búsqueda).
@@ -506,8 +687,11 @@ export class AbonadosService {
         correo: abonado.correo,
       });
       if (otroConCorreo && otroConCorreo.id !== abonado.id) {
-        throw new BadRequestException(
-          `Ya existe un abonado registrado con el correo ${abonado.correo}`,
+        throw new ConflictException(
+          errorDeCampo(
+            'correo',
+            `Ya existe un abonado registrado con el correo ${abonado.correo}`,
+          ),
         );
       }
     }
@@ -517,8 +701,11 @@ export class AbonadosService {
         telefono: abonado.telefono,
       });
       if (otroConTelefono && otroConTelefono.id !== abonado.id) {
-        throw new BadRequestException(
-          `Ya existe un abonado registrado con el teléfono ${abonado.telefono}`,
+        throw new ConflictException(
+          errorDeCampo(
+            'telefono',
+            `Ya existe un abonado registrado con el teléfono ${abonado.telefono}`,
+          ),
         );
       }
     }
@@ -594,15 +781,15 @@ export class AbonadosService {
         valor_nuevo: cambios[campo] ?? null,
       }))
       .filter((p) => (p.valor_anterior ?? '') !== (p.valor_nuevo ?? ''));
- 
+
     if (pares.length === 0) return;
- 
+
     const usuario = await this.userRepository.findOneBy({ id: usuarioId });
     const autor = {
       id: usuarioId,
       email: usuario?.email ?? `usuario-${usuarioId}`,
     };
- 
+
     await this.bitacoraService.registrarEdicion(
       ModuloBitacora.ABONADOS,
       abonadoId,
@@ -628,17 +815,17 @@ export class AbonadosService {
     }>
   > {
     const abonado = await this.findOne(id);
- 
+
     const nuevos = await this.bitacoraService.historialDeRegistro(
       ModuloBitacora.ABONADOS,
       abonado.id,
     );
- 
+
     const viejos = await this.historialRepository.find({
       where: { abonado: { id: abonado.id } },
       order: { fecha: 'DESC' },
     });
- 
+
     return [
       ...nuevos.map((b) => ({
         id: b.id,
@@ -667,7 +854,9 @@ export class AbonadosService {
       relations: RELACIONES_DETALLE,
     });
     if (!abonado) {
-      throw new NotFoundException('No se encontró un abonado vinculado a esta cuenta');
+      throw new NotFoundException(
+        'No se encontró un abonado vinculado a esta cuenta',
+      );
     }
 
     const [
@@ -686,13 +875,26 @@ export class AbonadosService {
         where: { abonado: { id: abonado.id } },
         order: { fecha_creacion: 'DESC' },
         take: 5,
-        select: { id: true, codigo_solicitud: true, tipo_solicitud: true, estado: true, fecha_creacion: true },
+        select: {
+          id: true,
+          codigo_solicitud: true,
+          tipo_solicitud: true,
+          estado: true,
+          fecha_creacion: true,
+        },
       }),
       this.averiaRepository.find({
         where: { cedula_reportante: abonado.cedula },
         order: { fecha_reporte: 'DESC' },
         take: 5,
-        select: { id: true, codigo_averia: true, tipo_averia: true, descripcion: true, estado: true, fecha_reporte: true },
+        select: {
+          id: true,
+          codigo_averia: true,
+          tipo_averia: true,
+          descripcion: true,
+          estado: true,
+          fecha_reporte: true,
+        },
       }),
     ]);
 

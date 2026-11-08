@@ -12,6 +12,8 @@ export enum ModuloBitacora {
   PUBLICACIONES = 'publicaciones',
   CONFIGURACION = 'configuracion',
   REPORTES_FONTANERO = 'reportes_fontanero',
+  LABORES_ADICIONALES = 'labores_adicionales',
+  SOLICITUDES_MATERIAL = 'solicitudes_material',
 }
 
 // Tipo de movimiento registrado.

@@ -21,6 +21,12 @@ export class RecaptchaGuard implements CanActivate {
   constructor(private readonly recaptchaService: RecaptchaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Interruptor temporal: reCAPTCHA está apagado mientras se revisa por qué
+    // la verificación de Google no funciona. Se vuelve a encender con
+    // RECAPTCHA_HABILITADO=true en el .env (y VITE_RECAPTCHA_HABILITADO=true
+    // en el frontend).
+    if (process.env.RECAPTCHA_HABILITADO !== 'true') return true;
+
     const peticion = context.switchToHttp().getRequest<Request>();
     const token = peticion.headers[ENCABEZADO_RECAPTCHA];
 

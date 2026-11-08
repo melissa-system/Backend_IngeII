@@ -1,7 +1,13 @@
 import {
+  debeNotificar,
+  notificarResultado,
+  registrarNotificacion,
+} from '../../common/notificacion-resultado';
+import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, In, Repository } from 'typeorm';
@@ -17,6 +23,13 @@ import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
 import { BitacoraService } from '../../../bitacora/bitacora.service';
 import { ModuloBitacora } from '../../../bitacora/entities/bitacora.enums';
 import { User } from '../../../auth/entities/user.entity';
+import { LaboresAdicionalesService } from '../../../labores-adicionales/labores-adicionales.service';
+import { LaborAdicional } from '../../../labores-adicionales/entities/labor-adicional.entity';
+import { TipoActividad } from '../../../reportes-fontanero/entities/reporte-fontanero.enums';
+import {
+  type LaborDeSolicitud,
+  resumirLabor,
+} from '../../common/labor-solicitud';
 
 export const TIPO_CAMBIO_MEDIDOR = 'cambio_medidor';
 
@@ -39,6 +52,8 @@ export interface SolicitudCambioMedidorResponse {
   evidencia_url: string | null;
   motivo_rechazo: string | null;
   id_empleado: number | null;
+  // Labor generada en "Otros mantenimientos" al aprobar la solicitud.
+  labor: LaborDeSolicitud | null;
   fecha_creacion: Date;
   fecha_actualizacion: Date;
 }
@@ -59,11 +74,13 @@ export class SolicitudesCambioMedidorService {
     private readonly cloudinaryService: CloudinaryService,
     private readonly mailService: MailService,
     private readonly bitacoraService: BitacoraService,
+    private readonly laboresService: LaboresAdicionalesService,
   ) {}
 
   private construirRespuesta(
     solicitud: Solicitud,
     detalle: SolicitudCambioMedidor,
+    labor: LaborAdicional | null,
   ): SolicitudCambioMedidorResponse {
     return {
       id: solicitud.id,
@@ -81,6 +98,7 @@ export class SolicitudesCambioMedidorService {
       evidencia_url: detalle.evidencia_url,
       motivo_rechazo: detalle.motivo_rechazo,
       id_empleado: solicitud.empleado?.id ?? null,
+      labor: resumirLabor(labor),
       fecha_creacion: solicitud.fecha_creacion,
       fecha_actualizacion: solicitud.fecha_actualizacion,
     };
@@ -104,7 +122,8 @@ export class SolicitudesCambioMedidorService {
         'La solicitud no tiene detalle de cambio de medidor',
       );
     }
-    return this.construirRespuesta(solicitud, detalle);
+    const labor = await this.laboresService.obtenerPorSolicitud(solicitud.id);
+    return this.construirRespuesta(solicitud, detalle, labor);
   }
 
   private buscarAbonadoDeUsuario(usuarioId: number): Promise<Abonado | null> {
@@ -137,6 +156,20 @@ export class SolicitudesCambioMedidorService {
       });
       if (!existente) return codigo;
     }
+  }
+
+  // Texto que verá el fontanero en su bandeja: abonado, motivo y dirección
+  // (el detalle completo viaja aparte, en datos_solicitud de la labor).
+  private descripcionLabor(
+    solicitud: Solicitud,
+    detalle: SolicitudCambioMedidor,
+  ): string {
+    return (
+      `Cambio de medidor por daño — ${solicitud.abonado.nombre} ` +
+      `(${solicitud.abonado.numero_abonado}). Motivo: ${detalle.motivo_falla}. ` +
+      `Dirección: ${detalle.direccion_exacta}. ` +
+      `Solicitud ${solicitud.codigo_solicitud}.`
+    );
   }
 
   async crear(
@@ -178,7 +211,7 @@ export class SolicitudesCambioMedidorService {
       },
     });
     if (duplicada) {
-      throw new BadRequestException(
+      throw new ConflictException(
         `Ya existe una solicitud de cambio de medidor en curso (${duplicada.codigo_solicitud}). Espera a que se resuelva.`,
       );
     }
@@ -259,9 +292,24 @@ export class SolicitudesCambioMedidorService {
       detalles.map((d) => [d.solicitud.id, d]),
     );
 
+    // Labores generadas (si la solicitud ya fue aprobada), en una sola
+    // consulta para no repetir por cada fila.
+    const labores = await this.laboresService.obtenerPorSolicitudes(ids);
+    const laborPorSolicitud = new Map(
+      labores
+        .filter((l) => l.id_solicitud !== null)
+        .map((l) => [l.id_solicitud as number, l]),
+    );
+
     return solicitudes
       .filter((s) => detallePorSolicitud.has(s.id))
-      .map((s) => this.construirRespuesta(s, detallePorSolicitud.get(s.id)!));
+      .map((s) =>
+        this.construirRespuesta(
+          s,
+          detallePorSolicitud.get(s.id)!,
+          laborPorSolicitud.get(s.id) ?? null,
+        ),
+      );
   }
 
   async cambiarEstado(
@@ -311,6 +359,39 @@ export class SolicitudesCambioMedidorService {
       await this.detalleRepository.save(detalle);
     }
 
+    // Al aprobar se genera el trabajo operativo: la labor aparece en "Otros
+    // mantenimientos" en estado Pendiente y sin fontanero, esperando que la
+    // administración la asigne. Va en try/catch porque la aprobación ya quedó
+    // guardada: si la creación falla, se registra el error y la labor se puede
+    // crear a mano desde "Otros mantenimientos".
+    if (dto.estado === 'aprobado') {
+      try {
+        await this.laboresService.crearDesdeSolicitud({
+          idSolicitud: solicitud.id,
+          tipoActividad: TipoActividad.MANTENIMIENTO,
+          descripcion: this.descripcionLabor(guardada, detalle),
+          datos: {
+            codigo_solicitud: guardada.codigo_solicitud,
+            tipo_solicitud: TIPO_CAMBIO_MEDIDOR,
+            abonado: {
+              nombre: guardada.abonado.nombre,
+              numero_abonado: guardada.abonado.numero_abonado,
+              cedula: guardada.abonado.cedula,
+              telefono: guardada.abonado.telefono,
+            },
+            direccion: detalle.direccion_exacta,
+            numero_nis: null,
+          },
+          creadoPorId: user.id,
+        });
+      } catch (error) {
+        console.error(
+          `No se pudo crear la labor de la solicitud ${guardada.codigo_solicitud}:`,
+          error,
+        );
+      }
+    }
+
     // Auditoría del cambio de estado en la bitácora general.
     // Va después del save: solo se audita lo que efectivamente quedó
     // guardado. Si el save falla, no debe quedar un registro de algo
@@ -325,23 +406,25 @@ export class SolicitudesCambioMedidorService {
     );
 
     // Notificación por correo electrónico
-    if (dto.estado === 'aprobado' || dto.estado === 'rechazado') {
-      try {
-        await this.mailService.enviarCorreoResultadoSolicitud(
-          solicitud.abonado.correo,
-          {
+    if (
+      debeNotificar(estadoAnterior, dto.estado, solicitud.notificacion_estado)
+    ) {
+      const notificacion = await notificarResultado({
+        destinatario: solicitud.abonado.correo,
+        codigo: solicitud.codigo_solicitud,
+        enviar: (destinatario) =>
+          this.mailService.enviarCorreoResultadoSolicitud(destinatario, {
             tipo: 'Cambio o reparación de medidor',
             codigo: solicitud.codigo_solicitud,
             estadoResultado: dto.estado as 'aprobado' | 'rechazado',
             motivo: detalle.motivo_rechazo ?? null,
-          },
-        );
-      } catch (error) {
-        console.error(
-          `Error al notificar por correo solicitud ${solicitud.codigo_solicitud}:`,
-          error,
-        );
-      }
+          }),
+      });
+      await registrarNotificacion(
+        this.solicitudRepository,
+        solicitud.id,
+        notificacion,
+      );
     }
 
     return this.cargarCompleta(guardada.id);

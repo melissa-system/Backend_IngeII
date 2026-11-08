@@ -16,6 +16,11 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/roles.enum';
 import type { RequestUser } from '../auth/strategies/jwt.strategy';
+import {
+  ActualizarEmpleadoDto,
+  CambiarEstadoEmpleadoDto,
+  CrearEmpleadoDto,
+} from './dto/empleado.dto';
 
 @Controller('empleados')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -34,16 +39,7 @@ export class EmpleadosController {
   @Post()
   @Roles(Role.SUPER_ADMIN)
   crear(
-    @Body() body: {
-      nombre: string;
-      cedula: string;
-      puesto: string;
-      telefono: string;
-      fecha_ingreso: string;
-      usuario_id?: number;
-      email?: string;
-      confirmarVinculacion?: boolean;
-    },
+    @Body() body: CrearEmpleadoDto,
     @Request() req: { user?: RequestUser },
   ) {
     return this.empleadosService.crear(body, req.user?.id);
@@ -77,16 +73,7 @@ export class EmpleadosController {
   @Roles(Role.SUPER_ADMIN)
   actualizar(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: {
-      nombre?: string;
-      cedula?: string;
-      puesto?: string;
-      telefono?: string;
-      correo?: string | null;
-      fecha_ingreso?: string;
-      usuario_id?: number | null;
-      confirmarVinculacion?: boolean;
-    },
+    @Body() body: ActualizarEmpleadoDto,
     @Request() req: { user?: RequestUser },
   ) {
     return this.empleadosService.actualizar(id, body, req.user?.id);
@@ -96,10 +83,10 @@ export class EmpleadosController {
   @Roles(Role.SUPER_ADMIN)
   cambiarEstado(
     @Param('id', ParseIntPipe) id: number,
-    @Body('estado') estado: 'Activo' | 'Inactivo',
+    @Body() body: CambiarEstadoEmpleadoDto,
     @Request() req: { user?: RequestUser },
   ) {
-    return this.empleadosService.cambiarEstado(id, estado, req.user?.id);
+    return this.empleadosService.cambiarEstado(id, body.estado, req.user?.id);
   }
 
   @Post(':id/vincular-cuenta')

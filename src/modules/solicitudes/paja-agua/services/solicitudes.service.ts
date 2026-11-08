@@ -1,4 +1,9 @@
 import {
+  debeNotificar,
+  notificarResultado,
+  registrarNotificacion,
+} from '../../common/notificacion-resultado';
+import {
   Injectable,
   ConflictException,
   NotFoundException,
@@ -18,6 +23,7 @@ import { Abonado } from '../../../abonados/entities/abonado.entity';
 import { Empleado } from '../../../empleados/entities/empleado.entity';
 import { User } from '../../../auth/entities/user.entity';
 import type { RequestUser } from '../../../auth/strategies/jwt.strategy';
+import { formatearCedula } from '../../../../common/validacion/reglas-validacion';
 
 const ESTADOS_CERRADOS = ['Aprobada', 'Rechazada', 'Completada'];
 
@@ -52,8 +58,19 @@ export class SolicitudesService {
       cedulaFrente?: Express.Multer.File[];
       cedulaDorso?: Express.Multer.File[];
     },
-    
   ): Promise<SolicitudPajaAgua> {
+    // La identificación puede llegar con o sin guiones: se guarda siempre en
+    // el mismo formato para que la detección de duplicados y la creación del
+    // abonado al aprobar no dependan de cómo se escribió.
+    datosSolicitud.identificacion =
+      formatearCedula(datosSolicitud.identificacion) ??
+      datosSolicitud.identificacion;
+    if (datosSolicitud.cedulaRepresentante) {
+      datosSolicitud.cedulaRepresentante =
+        formatearCedula(datosSolicitud.cedulaRepresentante) ??
+        datosSolicitud.cedulaRepresentante;
+    }
+
     // 0. Evitar duplicidad: si ya existe una solicitud reciente con la misma
     // identificación, no se registra otra en un periodo corto de tiempo.
     // Esta validación va ANTES de subir nada a Cloudinary, para no gastar
@@ -163,7 +180,10 @@ export class SolicitudesService {
       // intacto en vez de quedar tapado por un fallo de limpieza.
       await this.cloudinaryService.eliminarArchivo(permisos.publicId, false);
       await this.cloudinaryService.eliminarArchivo(carta.publicId, false);
-      await this.cloudinaryService.eliminarArchivo(cedulaFrente.publicId, false);
+      await this.cloudinaryService.eliminarArchivo(
+        cedulaFrente.publicId,
+        false,
+      );
       await this.cloudinaryService.eliminarArchivo(cedulaDorso.publicId, false);
       throw error;
     }
@@ -223,7 +243,16 @@ export class SolicitudesService {
     id: number,
     dto: ActualizarEstadoSolicitudPajaAguaDto,
     user: RequestUser,
+    documentoAprobacion?: Express.Multer.File,
   ): Promise<SolicitudPajaAgua> {
+    // Al aprobar es obligatorio adjuntar el documento firmado por la ASADA:
+    // se envía al solicitante para que lo descargue e inicie la segunda etapa.
+    if (dto.estado === 'Aprobada' && !documentoAprobacion) {
+      throw new BadRequestException(
+        'Debes adjuntar el documento de la solicitud aprobada (firmado por la ASADA) para poder aprobarla',
+      );
+    }
+
     const solicitud = await this.solicitudRepository.findOne({
       where: { id },
       relations: { empleado: true, abonado: true },
@@ -244,6 +273,17 @@ export class SolicitudesService {
     });
     if (empleado) {
       solicitud.empleado = empleado;
+    }
+
+    // Se sube antes de cambiar el estado: si falla, la solicitud sigue
+    // pendiente y el administrador puede reintentar.
+    if (dto.estado === 'Aprobada' && documentoAprobacion) {
+      const subido = await this.cloudinaryService.subirArchivo(
+        documentoAprobacion,
+        CARPETA_CLOUDINARY,
+      );
+      solicitud.documento_aprobacion_path = subido.url;
+      solicitud.documento_aprobacion_public_id = subido.publicId;
     }
 
     solicitud.estado = dto.estado;
@@ -282,22 +322,32 @@ export class SolicitudesService {
 
     // Notificar por correo al solicitante. Aislado en try/catch: el estado
     // ya se guardó, un fallo de SMTP no debe tumbar la respuesta.
-    if (dto.estado === 'Aprobada' || dto.estado === 'Rechazada') {
-      try {
-        await this.mailService.enviarCorreoResultadoPajaAgua(
-          solicitud.correo,
-          {
+    if (
+      debeNotificar(estadoAnterior, dto.estado, solicitud.notificacion_estado)
+    ) {
+      const notificacion = await notificarResultado({
+        destinatario: solicitud.correo,
+        codigo: solicitud.codigo_solicitud,
+        enviar: (destinatario) =>
+          this.mailService.enviarCorreoResultadoPajaAgua(destinatario, {
             codigo: solicitud.codigo_solicitud,
             estadoResultado: dto.estado as 'Aprobada' | 'Rechazada',
             motivo: solicitud.motivo_rechazo,
-          },
-        );
-      } catch (error) {
-        console.error(
-          `No se pudo notificar por correo el resultado de la solicitud ${solicitud.codigo_solicitud}:`,
-          error,
-        );
-      }
+            adjunto:
+              dto.estado === 'Aprobada' && documentoAprobacion
+                ? {
+                    nombre: documentoAprobacion.originalname,
+                    contenido: documentoAprobacion.buffer,
+                  }
+                : undefined,
+          }),
+      });
+      await registrarNotificacion(
+        this.solicitudRepository,
+        solicitud.id,
+        notificacion,
+      );
+      Object.assign(guardada, notificacion);
     }
 
     return guardada;

@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { Abonado } from '../../../abonados/entities/abonado.entity';
 import { Empleado } from '../../../empleados/entities/empleado.entity';
@@ -17,6 +18,10 @@ import { Empleado } from '../../../empleados/entities/empleado.entity';
 // Así el frontend puede listar "todas las solicitudes" en el panel y cada
 // sub-sección del menú filtra por tipo_solicitud.
 @Entity('solicitudes')
+@Index(['tipo_solicitud'])
+@Index(['estado'])
+@Index(['tipo_solicitud', 'estado'])
+@Index(['tipo_solicitud', 'fecha_creacion'])
 export class Solicitud {
   @PrimaryGeneratedColumn()
   id: number;
@@ -46,6 +51,18 @@ export class Solicitud {
   @ManyToOne(() => Empleado, { nullable: true })
   @JoinColumn({ name: 'id_empleado' })
   empleado: Empleado | null;
+
+  // Trazabilidad de la notificación por correo al solicitante cuando la
+  // solicitud se aprueba o rechaza: 'enviada', 'fallida' u 'omitida' (el
+  // solicitante no tenía un correo válido). Null = aún no se notificó.
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  notificacion_estado: 'enviada' | 'fallida' | 'omitida' | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  notificacion_fecha: Date | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  notificacion_error: string | null;
 
   @CreateDateColumn()
   fecha_creacion: Date;

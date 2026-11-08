@@ -24,6 +24,7 @@ import { User } from '../../auth/entities/user.entity';
 // ("historial de este abonado"), por módulo y por fecha.
 @Index(['modulo', 'registro_id'])
 @Index(['fecha'])
+@Index(['modulo', 'fecha'])
 export class Bitacora {
   @PrimaryGeneratedColumn()
   id: number;

@@ -50,7 +50,7 @@ describe('InventarioService', () => {
         id: 2,
         nombre: 'Bomba Sumergible',
         descripcion: 'Bomba para pozo 2HP',
-        clasificacion: 'inmueble',
+        clasificacion: 'herramientas',
         cantidad_disponible: 0,
         fecha_ingreso: '2026-09-02',
         ubicacion: 'Pozo 1',
@@ -215,23 +215,21 @@ describe('InventarioService', () => {
   });
 
   describe('listarArticulos y obtenerPorId', () => {
-    it('retorna la lista de artículos con stockBajo calculado', async () => {
+    it('retorna la lista completa de artículos', async () => {
       const res = await service.listarArticulos();
       expect(res).toHaveLength(2);
-      expect(res[0].stockBajo).toBe(false); // 50 > 5
-      expect(res[1].stockBajo).toBe(true);  // 0 <= 5
+      expect(res[0].nombre).toBe('Tubería PVC 1/2"');
     });
 
-    it('aplica el filtro soloStockBajo en la consulta SQL', async () => {
-      await service.listarArticulos({ soloStockBajo: true });
+    it('aplica el filtro de clasificación en la consulta SQL', async () => {
+      await service.listarArticulos({ clasificacion: 'materiales' });
       expect(articuloRepository.createQueryBuilder).toHaveBeenCalled();
     });
 
-    it('retorna un artículo por id con stockBajo calculado', async () => {
+    it('retorna un artículo por id', async () => {
       const res = await service.obtenerArticuloPorId(1);
       expect(res.id).toBe(1);
       expect(res.nombre).toBe('Tubería PVC 1/2"');
-      expect(res.stockBajo).toBe(false);
     });
 
     it('arroja NotFoundException si no existe el id', async () => {

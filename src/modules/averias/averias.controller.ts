@@ -41,6 +41,15 @@ export class AveriasController {
     return this.averiasService.misAverias(req.user!);
   }
 
+  // Bandeja del fontanero: solo las averías asignadas que siguen abiertas
+  // (Pendiente o En proceso). Va antes de ':id' para no tomarse como un id.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Get('mis-averias-fontanero')
+  @Roles(Role.FONTANERO)
+  misAveriasFontanero(@Request() req: { user?: RequestUser }) {
+    return this.averiasService.misAveriasFontanero(req.user!);
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Get('estadisticas')
   @Roles(Role.ADMIN)
@@ -68,7 +77,33 @@ export class AveriasController {
   actualizar(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateAveriaDto,
+    @Request() req: { user?: RequestUser },
   ) {
-    return this.averiasService.actualizar(id, dto);
+    return this.averiasService.actualizar(id, dto, req.user?.id);
+  }
+
+  // El fontanero arranca el cronómetro de una avería asignada (la marca
+  // "En proceso"). Solo puede hacerlo sobre sus propias averías.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Patch(':id/iniciar-gestion')
+  @Roles(Role.FONTANERO)
+  iniciarGestion(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: { user?: RequestUser },
+  ) {
+    return this.averiasService.iniciarGestion(id, req.user!);
+  }
+
+  // El fontanero detiene el cronómetro al terminar el trabajo. NO finaliza la
+  // avería: al registrar el reporte queda "En revisión" y la administración
+  // decide si se resuelve o no.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Patch(':id/terminar-gestion')
+  @Roles(Role.FONTANERO)
+  terminarGestion(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: { user?: RequestUser },
+  ) {
+    return this.averiasService.terminarGestion(id, req.user!);
   }
 }

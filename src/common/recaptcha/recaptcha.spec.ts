@@ -154,6 +154,18 @@ describe('RecaptchaGuard', () => {
   beforeEach(() => {
     recaptchaService = { verificar: jest.fn() };
     guard = new RecaptchaGuard(recaptchaService as unknown as RecaptchaService);
+    process.env.RECAPTCHA_HABILITADO = 'true';
+  });
+
+
+  afterEach(() => {
+    delete process.env.RECAPTCHA_HABILITADO;
+  });
+
+  it('con reCAPTCHA apagado deja pasar sin token ni consultar a Google', async () => {
+    process.env.RECAPTCHA_HABILITADO = 'false';
+    expect(await guard.canActivate(contexto())).toBe(true);
+    expect(recaptchaService.verificar).not.toHaveBeenCalled();
   });
 
   it('400 si la petición no trae el encabezado del token', async () => {

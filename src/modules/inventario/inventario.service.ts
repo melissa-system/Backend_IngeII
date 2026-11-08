@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Like, EntityManager } from 'typeorm';
@@ -20,6 +21,11 @@ import { RegistrarMovimientoDto } from './dto/registrar-movimiento.dto';
 import { CrearProveedorDto } from './dto/crear-proveedor.dto';
 import { ActualizarProveedorDto } from './dto/actualizar-proveedor.dto';
 import type { RequestUser } from '../auth/strategies/jwt.strategy';
+import {
+  formatearTelefono,
+  normalizarCorreo,
+} from '../../common/validacion/reglas-validacion';
+import { errorDeCampo } from '../../common/errores/respuesta-error';
 
 @Injectable()
 export class InventarioService {
@@ -41,7 +47,8 @@ export class InventarioService {
       where: { id: user.id },
     });
     const email = (user as any).email ?? usuarioAutor?.email ?? null;
-    const nombre = usuarioAutor?.username ?? usuarioAutor?.email ?? 'Administrador';
+    const nombre =
+      usuarioAutor?.username ?? usuarioAutor?.email ?? 'Administrador';
     return {
       autor: { id: user.id, email },
       nombre,
@@ -55,7 +62,7 @@ export class InventarioService {
   async crearArticulo(
     dto: CrearArticuloDto,
     user: RequestUser,
-  ): Promise<Articulo & { stockBajo: boolean }> {
+  ): Promise<Articulo> {
     const proveedor = await this.proveedorRepository.findOne({
       where: { id: dto.proveedorId },
     });
@@ -71,7 +78,6 @@ export class InventarioService {
       descripcion: dto.descripcion,
       clasificacion: dto.clasificacion,
       cantidad_disponible: dto.cantidad,
-      umbral_minimo: dto.umbralMinimo !== undefined ? dto.umbralMinimo : 5,
       fecha_ingreso: dto.fechaIngreso || new Date().toISOString().slice(0, 10),
       ubicacion: dto.ubicacion,
       persona_recibe: dto.personaRecibe,
@@ -103,20 +109,14 @@ export class InventarioService {
       `Artículo "${articuloGuardado.nombre}" creado con stock inicial de ${articuloGuardado.cantidad_disponible} unidades`,
     );
 
-    return {
-      ...articuloGuardado,
-      stockBajo:
-        articuloGuardado.cantidad_disponible <=
-        (articuloGuardado.umbral_minimo ?? 5),
-    };
+    return articuloGuardado;
   }
 
   async listarArticulos(filtros?: {
     busqueda?: string;
     clasificacion?: string;
     estado?: string;
-    soloStockBajo?: boolean;
-  }): Promise<(Articulo & { stockBajo: boolean })[]> {
+  }): Promise<Articulo[]> {
     const query = this.articuloRepository
       .createQueryBuilder('articulo')
       .leftJoinAndSelect('articulo.proveedor', 'proveedor')
@@ -142,40 +142,29 @@ export class InventarioService {
       });
     }
 
-    if (filtros?.soloStockBajo) {
-      query.andWhere('articulo.cantidad_disponible <= articulo.umbral_minimo');
-    }
-
-    const articulos = await query.getMany();
-    return articulos.map((art) => ({
-      ...art,
-      stockBajo: art.cantidad_disponible <= (art.umbral_minimo ?? 5),
-    }));
+    return query.getMany();
   }
 
-  async obtenerArticuloPorId(
-    id: number,
-  ): Promise<Articulo & { stockBajo: boolean }> {
+  async obtenerArticuloPorId(id: number): Promise<Articulo> {
     const articulo = await this.articuloRepository.findOne({
       where: { id },
       relations: { proveedor: true, movimientos: true },
     });
 
     if (!articulo) {
-      throw new NotFoundException(`El artículo con ID #${id} no fue encontrado`);
+      throw new NotFoundException(
+        `El artículo con ID #${id} no fue encontrado`,
+      );
     }
 
-    return {
-      ...articulo,
-      stockBajo: articulo.cantidad_disponible <= (articulo.umbral_minimo ?? 5),
-    };
+    return articulo;
   }
 
   async actualizarArticulo(
     id: number,
     dto: ActualizarArticuloDto,
     user: RequestUser,
-  ): Promise<Articulo & { stockBajo: boolean }> {
+  ): Promise<Articulo> {
     const articulo = await this.obtenerArticuloPorId(id);
     const { autor } = await this.resolverAutor(user);
 
@@ -194,7 +183,6 @@ export class InventarioService {
       nombre: articulo.nombre,
       descripcion: articulo.descripcion,
       clasificacion: articulo.clasificacion,
-      umbral_minimo: articulo.umbral_minimo,
       ubicacion: articulo.ubicacion,
       persona_recibe: articulo.persona_recibe,
       proveedor_id: articulo.proveedor?.id,
@@ -203,10 +191,11 @@ export class InventarioService {
 
     if (dto.nombre !== undefined) articulo.nombre = dto.nombre;
     if (dto.descripcion !== undefined) articulo.descripcion = dto.descripcion;
-    if (dto.clasificacion !== undefined) articulo.clasificacion = dto.clasificacion;
-    if (dto.umbralMinimo !== undefined) articulo.umbral_minimo = dto.umbralMinimo;
+    if (dto.clasificacion !== undefined)
+      articulo.clasificacion = dto.clasificacion;
     if (dto.ubicacion !== undefined) articulo.ubicacion = dto.ubicacion;
-    if (dto.personaRecibe !== undefined) articulo.persona_recibe = dto.personaRecibe;
+    if (dto.personaRecibe !== undefined)
+      articulo.persona_recibe = dto.personaRecibe;
     if (dto.estado !== undefined) articulo.estado = dto.estado;
     articulo.proveedor = proveedor;
 
@@ -216,7 +205,6 @@ export class InventarioService {
       nombre: actualizado.nombre,
       descripcion: actualizado.descripcion,
       clasificacion: actualizado.clasificacion,
-      umbral_minimo: actualizado.umbral_minimo,
       ubicacion: actualizado.ubicacion,
       persona_recibe: actualizado.persona_recibe,
       proveedor_id: actualizado.proveedor?.id,
@@ -227,7 +215,6 @@ export class InventarioService {
       'nombre',
       'descripcion',
       'clasificacion',
-      'umbral_minimo',
       'ubicacion',
       'persona_recibe',
       'proveedor_id',
@@ -243,11 +230,7 @@ export class InventarioService {
       );
     }
 
-    return {
-      ...actualizado,
-      stockBajo:
-        actualizado.cantidad_disponible <= (actualizado.umbral_minimo ?? 5),
-    };
+    return actualizado;
   }
 
   async registrarMovimiento(
@@ -255,7 +238,7 @@ export class InventarioService {
     dto: RegistrarMovimientoDto,
     user: RequestUser,
   ): Promise<{
-    articulo: Articulo & { stockBajo: boolean };
+    articulo: Articulo;
     movimiento: MovimientoInventario;
   }> {
     const { autor, nombre: nombreRegistro } = await this.resolverAutor(user);
@@ -319,17 +302,14 @@ export class InventarioService {
         valor_anterior: String(stockAnterior),
         valor_nuevo: String(articuloActualizado.cantidad_disponible),
         observaciones: `${dto.tipoMovimiento.toUpperCase()}: ${dto.cantidad} uds. Motivo: ${dto.motivo}${
-          dto.responsableDestino ? ` - Destino/Responsable: ${dto.responsableDestino}` : ''
+          dto.responsableDestino
+            ? ` - Destino/Responsable: ${dto.responsableDestino}`
+            : ''
         }`,
       });
 
       return {
-        articulo: {
-          ...articuloActualizado,
-          stockBajo:
-            articuloActualizado.cantidad_disponible <=
-            (articuloActualizado.umbral_minimo ?? 5),
-        },
+        articulo: articuloActualizado,
         movimiento: movimientoGuardado,
       };
     });
@@ -488,13 +468,44 @@ export class InventarioService {
     });
   }
 
+  // Evita proveedores repetidos por nombre (sin distinguir mayúsculas) o
+  // por correo. idActual excluye al propio proveedor al editar.
+  private async verificarProveedorNoDuplicado(
+    nombre: string | undefined,
+    correo: string | null | undefined,
+    idActual?: number,
+  ): Promise<void> {
+    if (nombre?.trim()) {
+      const mismoNombre = await this.proveedorRepository
+        .createQueryBuilder('p')
+        .where('LOWER(TRIM(p.nombre)) = :nombre', {
+          nombre: nombre.trim().toLowerCase(),
+        })
+        .getOne();
+      if (mismoNombre && mismoNombre.id !== idActual) {
+        throw new ConflictException(errorDeCampo('nombre', `Ya existe un proveedor registrado con el nombre "${mismoNombre.nombre}".`));
+      }
+    }
+    const correoNormalizado = normalizarCorreo(correo);
+    if (correoNormalizado) {
+      const mismoCorreo = await this.proveedorRepository
+        .createQueryBuilder('p')
+        .where('LOWER(TRIM(p.correo)) = :correo', { correo: correoNormalizado })
+        .getOne();
+      if (mismoCorreo && mismoCorreo.id !== idActual) {
+        throw new ConflictException(errorDeCampo('correo', `Ya existe un proveedor registrado con el correo ${correoNormalizado}.`));
+      }
+    }
+  }
+
   async crearProveedor(dto: CrearProveedorDto): Promise<Proveedor> {
+    await this.verificarProveedorNoDuplicado(dto.nombre, dto.correo);
     const proveedor = this.proveedorRepository.create({
-      nombre: dto.nombre,
+      nombre: dto.nombre.trim(),
       tipo: dto.tipo || 'Jurídico',
       contacto: dto.contacto || null,
-      telefono: dto.telefono || null,
-      correo: dto.correo || null,
+      telefono: formatearTelefono(dto.telefono) || null,
+      correo: normalizarCorreo(dto.correo) || null,
       direccion: dto.direccion || null,
       estado: dto.estado || 'Activo',
     });
@@ -509,7 +520,14 @@ export class InventarioService {
     if (!proveedor) {
       throw new NotFoundException(`El proveedor con ID #${id} no existe`);
     }
+    await this.verificarProveedorNoDuplicado(dto.nombre, dto.correo, id);
     Object.assign(proveedor, dto);
+    if (dto.telefono !== undefined) {
+      proveedor.telefono = formatearTelefono(dto.telefono) || null;
+    }
+    if (dto.correo !== undefined) {
+      proveedor.correo = normalizarCorreo(dto.correo) || null;
+    }
     return this.proveedorRepository.save(proveedor);
   }
 

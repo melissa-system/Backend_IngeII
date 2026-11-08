@@ -23,13 +23,15 @@ export class Articulo {
   descripcion: string;
 
   @Column({ type: 'varchar', length: 50, default: 'articulo' })
-  clasificacion: 'inmueble' | 'articulo';
+  clasificacion:
+    | 'articulo'
+    | 'materiales'
+    | 'herramientas'
+    | 'seguridad'
+    | 'productos';
 
   @Column({ type: 'int', default: 0 })
   cantidad_disponible: number;
-
-  @Column({ type: 'int', default: 5 })
-  umbral_minimo: number;
 
   @Column({ type: 'date', default: () => '(CURRENT_DATE)' })
   fecha_ingreso: string;

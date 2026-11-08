@@ -15,6 +15,7 @@ import { AbonadosService } from './abonados.service';
 import { CreateAbonadoDto } from './dto/create-abonado.dto';
 import { UpdateAbonadoDto } from './dto/update-abonado.dto';
 import { CambiarEstadoAbonadoDto } from './dto/cambiar-estado.dto';
+import { FiltroEstadisticasAbonadosDto } from './dto/filtro-estadisticas-abonados.dto';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -33,6 +34,15 @@ export class AbonadosController {
   @Roles(Role.ABONADO)
   obtenerMiResumen(@Request() req: { user?: RequestUser }) {
     return this.abonadosService.obtenerMiResumen(req.user!.id);
+  }
+
+  // Resumen estadístico para la página de reportes: total, conteos por
+  // tipo/estado y registros, filtrado por rango/tipo/estado. Se declara
+  // antes de ':id' para que 'estadisticas' no se tome como un id.
+  @Get('estadisticas')
+  @Roles(Role.ADMIN)
+  obtenerEstadisticas(@Query() filtros: FiltroEstadisticasAbonadosDto) {
+    return this.abonadosService.obtenerEstadisticas(filtros);
   }
 
   @Post()

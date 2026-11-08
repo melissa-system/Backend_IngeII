@@ -112,15 +112,16 @@ export class DocumentosController {
     return this.documentosService.findAll({ tipo, nombre });
   }
 
-  // "Documentos oficiales": lo que ve un abonado (o cualquier usuario con
-  // sesión) desde su propio perfil. Sin @Roles: cualquier rol autenticado
-  // pasa el RolesGuard (ver roles.guard.ts, "si la ruta no especifica
-  // ningún rol, se permite el paso"). Solo documentos vigentes, sin
+  // "Documentos oficiales": lo que ve un abonado desde su propio perfil.
+  // Restringido con @Roles según la matriz de roles: solo Abonado (y, por
+  // la Regla de Oro, Junta Directiva). El Fontanero queda fuera — su perfil
+  // solo cubre su dashboard y sus averías. Solo documentos vigentes, sin
   // importar si son 'Interno' o 'Público' — ambos son documentación
   // oficial para un abonado ya identificado; 'Público' además se promociona
   // aparte en Noticias (ver /documentos/publicos). Admite ?tipo= igual que
   // el listado administrativo.
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ABONADO, Role.ADMIN)
   @Get('oficiales')
   findOficiales(@Query('tipo') tipo?: string) {
     return this.documentosService.findOficiales(tipo);

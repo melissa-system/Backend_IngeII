@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
   UnauthorizedException,
+  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
@@ -29,6 +30,7 @@ import {
   ModuloBitacora,
   AccionBitacora,
 } from '../bitacora/entities/bitacora.enums';
+import { errorDeCampo } from '../../common/errores/respuesta-error';
 
 @Injectable()
 export class AuthService {
@@ -407,7 +409,7 @@ export class AuthService {
   ): Promise<{ mensaje: string }> {
     const existente = await this.userRepository.findOne({ where: { email } });
     if (existente) {
-      throw new BadRequestException('Ya existe una cuenta con ese correo');
+      throw new ConflictException(errorDeCampo('email', 'Ya existe una cuenta con ese correo'));
     }
 
     const rolAbonado = await this.roleRepository.findOne({
@@ -415,7 +417,7 @@ export class AuthService {
     });
     if (!rolAbonado) {
       throw new InternalServerErrorException(
-        `No existe el rol '${Role.ABONADO}' en la tabla roles. Corré "npm run seed:roles".`,
+        'No se pudo completar el registro por un problema de configuración del sistema. Contacte a la ASADA.',
       );
     }
 
@@ -733,12 +735,12 @@ export class AuthService {
   }> {
     const existe = await this.userRepository.findOne({ where: { email } });
     if (existe) {
-      throw new BadRequestException('Ya existe una cuenta con ese correo electrónico');
+      throw new ConflictException(errorDeCampo('email', 'Ya existe una cuenta con ese correo electrónico'));
     }
  
     const rol = await this.roleRepository.findOne({ where: { id: roleId } });
     if (!rol) {
-      throw new BadRequestException('El rol seleccionado no existe en el sistema');
+      throw new NotFoundException('El rol seleccionado no existe en el sistema');
     }
  
     const passwordHash = await bcrypt.hash(passwordPlano, BCRYPT_COST);
@@ -904,7 +906,7 @@ export class AuthService {
       where: { id: usuarioId },
     });
     if (!user) {
-      throw new BadRequestException('No se encontró la cuenta de acceso indicada.');
+      throw new NotFoundException('No se encontró la cuenta de acceso indicada.');
     }
 
     await this.passwordResetTokenRepository.delete({
@@ -1188,7 +1190,7 @@ export class AuthService {
         where: { email: dto.email },
       });
       if (existe) {
-        throw new BadRequestException('Ya existe una cuenta con ese correo');
+        throw new ConflictException(errorDeCampo('email', 'Ya existe una cuenta con ese correo'));
       }
 
       user.email = dto.email;
@@ -1202,7 +1204,7 @@ export class AuthService {
         where: { username: dto.username },
       });
       if (existe) {
-        throw new BadRequestException('Ese nombre de usuario ya está en uso');
+        throw new ConflictException(errorDeCampo('username', 'Ese nombre de usuario ya está en uso'));
       }
 
       user.username = dto.username;

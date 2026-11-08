@@ -318,7 +318,7 @@ describe('SolicitudesCambioPropietarioService', () => {
       ).rejects.toThrow('La cédula del nuevo propietario debe ser distinta');
     });
 
-    it('400 Bad Request: no debe permitir crear una solicitud si ya existe una abierta en curso', async () => {
+    it('409 Conflict: no debe permitir crear una solicitud si ya existe una abierta en curso', async () => {
       const userAbonado: RequestUser = { id: 10, role: 'abonado' };
       const archivo = crearArchivoFalso();
 

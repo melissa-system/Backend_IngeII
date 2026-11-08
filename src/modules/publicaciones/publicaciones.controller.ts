@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   ParseIntPipe,
@@ -67,5 +68,16 @@ export class PublicacionesController {
       updatePublicacionDto,
       req.user?.id,
     );
+  }
+
+  // Eliminación definitiva desde el dashboard administrativo.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Delete(':id')
+  remove(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: { user?: RequestUser },
+  ) {
+    return this.publicacionesService.remove(id, req.user?.id);
   }
 }
